@@ -14,12 +14,6 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.omegaconf import open_dict
 
-# isort: off
-# Need to import bpy first to avoid potential symbol loading issues.
-import bpy  # noqa: F401
-
-# isort: on
-
 from scenesmith.utils.logging import FileLoggingContext
 from scenesmith.utils.omegaconf import register_resolvers
 from scenesmith.utils.print_utils import cyan
@@ -28,6 +22,11 @@ console_logger = logging.getLogger(__name__)
 
 
 def run_local(cfg: DictConfig):
+    # Import bpy before any Blender-dependent modules to avoid symbol loading issues.
+    # This is deferred from module level so that multiprocessing 'spawn' workers
+    # (which re-import __main__) do not import bpy in child processes.
+    import bpy  # noqa: F401  # isort: skip
+
     # Delay some imports in case they are not needed in non-local envs for submission.
     from scenesmith.experiments import build_experiment
 

@@ -1814,7 +1814,7 @@ dev = [
 requires-dist = [
     { name = "autoflake", specifier = ">=2.3.1" },
     { name = "black", specifier = ">=25.1.0" },
-    { name = "bpy", specifier = "==4.5.4" },
+    { name = "bpy", specifier = "==4.5.4", index = "https://download.blender.org/pypi/" },
     { name = "coacd", specifier = ">=1.0.7" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "diffusers", specifier = ">=0.35.1" },

@@ -138,12 +138,15 @@ class GPUWorkerPool:
             f"Detected {self._num_gpus} GPU(s) for worker pool: {self._gpu_ids}"
         )
 
-        # Use 'fork' context for workers. Fork works correctly because:
-        # 1. Parent process does NOT import torch/CUDA at module level
+        # Use 'spawn' context for workers to avoid CUDA re-initialization errors.
+        # Fork is unsafe because bpy (Blender) initializes CUDA in the main process,
+        # and forked children inherit that state, causing "Cannot re-initialize CUDA
+        # in forked subprocess" crashes. Spawn starts fresh child processes.
+        # Requirements for spawn to work:
+        # 1. main.py guards `import bpy` so spawn re-import doesn't trigger it
         # 2. Each worker sets CUDA_VISIBLE_DEVICES BEFORE importing CUDA code
-        # 3. Fork is required because 'spawn' re-imports main.py which imports bpy,
-        #    and bpy cannot be imported in spawned subprocesses
-        self._mp_ctx = mp.get_context("fork")
+        # 3. All arguments passed to workers must be picklable
+        self._mp_ctx = mp.get_context("spawn")
 
         # Lock for serializing pipeline initialization to avoid I/O contention.
         # SAM3D checkpoints are ~15GB total. Loading them on 8 workers simultaneously
@@ -249,8 +252,8 @@ class GPUWorkerPool:
     def start(self) -> None:
         """Start all GPU worker processes.
 
-        Uses 'fork' context to create worker processes. Workers fork BEFORE
-        any CUDA initialization in the parent (CLIP servers start after this).
+        Uses 'spawn' context to create fresh worker processes, avoiding CUDA
+        re-initialization errors from forking after bpy initializes CUDA.
         Each worker then sets CUDA_VISIBLE_DEVICES and imports CUDA code.
 
         Workers are staggered to avoid contention during pipeline loading.
@@ -263,7 +266,7 @@ class GPUWorkerPool:
         )
         self._running = True
 
-        # Fork worker processes on all available GPUs.
+        # Spawn worker processes on all available GPUs.
         for i, gpu_id in enumerate(self._gpu_ids):
             self._start_single_worker(gpu_id)
 
