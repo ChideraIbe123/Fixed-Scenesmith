@@ -1,0 +1,17 @@
+name: "arm_placement_designer_critique_instruction"
+version: "1.0"
+description: "Instruction for designer to address critic feedback on arm placement"
+template_variables: ["instruction"]
+prompt: |
+  The critic has evaluated the arm placement and provided feedback.
+  Address the following issues:
+
+  {{ instruction }}
+
+  Use the appropriate tools to make changes:
+  - adjust_arm_position() to fine-tune position or rotation
+  - place_arm() to move the arm to a completely different surface
+  - observe_scene() to verify changes visually
+  - get_arm_placement_status() to check current state
+
+  After making changes, call observe_scene() and summarize what you modified.

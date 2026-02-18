@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .manager import PromptManager
 from .registry import (
+    ArmPlacementPrompts,
     AssetRouterPrompts,
     FloorPlanAgentPrompts,
     FurnitureAgentPrompts,
@@ -25,6 +26,7 @@ prompt_registry = PromptRegistry(prompt_manager)
 __all__ = [
     "prompt_manager",
     "prompt_registry",
+    "ArmPlacementPrompts",
     "AssetRouterPrompts",
     "FloorPlanAgentPrompts",
     "FurnitureAgentPrompts",

@@ -1,0 +1,12 @@
+name: "arm_placement_planner_runner_instruction"
+version: "1.0"
+description: "Entry message for the arm placement planner"
+template_variables: []
+prompt: |
+  Place the robot arm in this scene. Follow the workflow:
+  1. Call request_initial_design() to have the designer analyze the scene and place the arm
+  2. Call request_critique() to evaluate the placement
+  3. If needed, use request_design_change() to address feedback
+  4. Repeat critique/change cycles until scores are high or max rounds reached
+
+  Start by calling request_initial_design().

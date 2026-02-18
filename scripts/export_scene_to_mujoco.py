@@ -1012,17 +1012,26 @@ def export_scene_to_mujoco(
             spec.compile()
         except ValueError as e:
             err_str = str(e)
-            if "mesh volume is too small" in err_str:
-                # MuJoCo 3.3.5 lacks shellinertia. Replace degenerate mesh
-                # files with a tiny tetrahedron so compilation succeeds.
-                import re as _re
+            # Handle degenerate collision meshes: tiny volumes or flat
+            # convex hulls from convex decomposition.
+            import re as _re
 
+            def _extract_bad_mesh_name(error_text: str) -> str | None:
+                """Extract mesh name from volume-too-small or qhull errors."""
+                m = _re.search(r"mesh volume is too small: (\S+)", error_text)
+                if m:
+                    return m.group(1)
+                m = _re.search(
+                    r"qhull.*?Element name '([^']+)'", error_text, _re.DOTALL
+                )
+                if m:
+                    return m.group(1)
+                return None
+
+            bad_mesh = _extract_bad_mesh_name(err_str)
+            if bad_mesh is not None:
                 _replaced: set[str] = set()
-                while True:
-                    match = _re.search(r"mesh volume is too small: (\S+)", err_str)
-                    if not match or match.group(1) in _replaced:
-                        raise
-                    bad_mesh = match.group(1)
+                while bad_mesh and bad_mesh not in _replaced:
                     console_logger.warning(
                         f"Replacing degenerate mesh '{bad_mesh}' with "
                         f"tiny tetrahedron"
@@ -1047,7 +1056,8 @@ def export_scene_to_mujoco(
                         break
                     except ValueError as e2:
                         err_str = str(e2)
-                        if "mesh volume is too small" not in err_str:
+                        bad_mesh = _extract_bad_mesh_name(err_str)
+                        if bad_mesh is None:
                             raise
             else:
                 raise

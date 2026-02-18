@@ -226,6 +226,25 @@ class RobotEvalPrompts(PromptEnum):
     POLICY_AGENT = "policy_agent"
 
 
+class ArmPlacementPrompts(PromptEnum):
+    """Registry of arm placement agent prompts."""
+
+    _BASE_PATH = nonmember("arm_placement")
+
+    # Planner prompts.
+    PLANNER_AGENT = "planner_agent"
+    PLANNER_RUNNER_INSTRUCTION = "planner_runner_instruction"
+
+    # Designer prompts.
+    DESIGNER_AGENT = "designer_agent"
+    DESIGNER_INITIAL_INSTRUCTION = "designer_initial_instruction"
+    DESIGNER_CRITIQUE_INSTRUCTION = "designer_critique_instruction"
+
+    # Critic prompts.
+    CRITIC_AGENT = "critic_agent"
+    CRITIC_RUNNER_INSTRUCTION = "critic_runner_instruction"
+
+
 class PromptRegistry:
     """Central registry for all available prompts."""
 

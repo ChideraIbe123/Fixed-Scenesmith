@@ -1,0 +1,29 @@
+name: "arm_placement_critic_runner_instruction"
+version: "1.0"
+description: "Instruction for critic to evaluate arm placement"
+template_variables: []
+prompt: |
+  Evaluate the current robot arm placement in the scene.
+
+  # MANDATORY FIRST STEPS
+
+  You MUST call these tools FIRST before any evaluation:
+  1. `observe_scene` — See the scene with the arm placed
+  2. `get_arm_placement_details` — Get position, clearance, and collision data
+  3. `get_scene_info` — Understand room context
+
+  Do NOT skip these steps. Do NOT evaluate until you have seen all outputs.
+
+  # Your Task
+
+  After viewing the rendered images and placement data, provide a comprehensive
+  critique evaluating:
+  1. Stability — Is the arm on a secure, flat surface?
+  2. Reachability — Can the arm reach nearby objects?
+  3. Clearance — Is there room for arm movement?
+  4. Task Suitability — Does the placement make practical sense?
+  5. Collision-Free — Are there any intersections with furniture?
+
+  Score each category 0-10 and provide specific feedback for improvement.
+  If the placement is excellent (all scores ≥9), acknowledge this and avoid
+  suggesting unnecessary changes.

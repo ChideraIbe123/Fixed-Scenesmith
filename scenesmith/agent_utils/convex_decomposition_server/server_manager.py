@@ -248,7 +248,7 @@ class ConvexDecompositionServer:
         else:
             return f"Exited with code {poll_result}"
 
-    def wait_until_ready(self, timeout: float = 10.0) -> None:
+    def wait_until_ready(self, timeout: float = 60.0) -> None:
         """Wait until the server is ready to accept HTTP requests.
 
         Args:
