@@ -428,8 +428,14 @@ class DesignerTools:
         arm_wrapper.set("quat", f"{qw:.6f} 0 0 {qz:.6f}")
 
         # Copy arm bodies into the wrapper.
+        # The arm's <default> block (which sets type="mesh") doesn't get copied,
+        # so we must explicitly set type="mesh" on all arm geoms that reference
+        # a mesh but lack an explicit type attribute.
         for child in list(arm_worldbody):
             arm_wrapper.append(child)
+        for geom in arm_wrapper.iter("geom"):
+            if geom.get("mesh") and not geom.get("type"):
+                geom.set("type", "mesh")
 
         # Copy arm meshes to scene asset section.
         # Update mesh file paths to be relative to scene's meshdir

@@ -130,12 +130,15 @@ def _get_body_aabb(model: mujoco.MjModel, data: mujoco.MjData, body_id: int) -> 
             # Use mesh AABB from model.
             mesh_id = model.geom_dataid[g]
             if mesh_id >= 0 and mesh_id < model.nmesh:
-                # Approximate from mesh vertex range.
                 vert_start = model.mesh_vertadr[mesh_id]
                 vert_count = model.mesh_vertnum[mesh_id]
                 if vert_count > 0:
                     verts = model.mesh_vert[vert_start : vert_start + vert_count]
-                    half = np.max(np.abs(verts), axis=0)
+                    vert_min = np.min(verts, axis=0)
+                    vert_max = np.max(verts, axis=0)
+                    mins = np.minimum(mins, gpos + vert_min)
+                    maxs = np.maximum(maxs, gpos + vert_max)
+                    continue
                 else:
                     half = np.array([0.1, 0.1, 0.1])
             else:
@@ -152,6 +155,40 @@ def _get_body_aabb(model: mujoco.MjModel, data: mujoco.MjData, body_id: int) -> 
     return list(center), list(np.maximum(size, 0.01))
 
 
+def _get_collision_geom_top_z(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    geom_id: int,
+) -> float | None:
+    """Get the world-frame top Z of a single geom.
+
+    Returns None for visual-only geoms (contype=0 and conaffinity=0).
+    """
+    if model.geom_contype[geom_id] == 0 and model.geom_conaffinity[geom_id] == 0:
+        return None
+
+    gpos = data.geom_xpos[geom_id]
+    gtype = model.geom_type[geom_id]
+
+    if gtype == mujoco.mjtGeom.mjGEOM_MESH:
+        mesh_id = model.geom_dataid[geom_id]
+        if mesh_id >= 0 and mesh_id < model.nmesh:
+            vert_start = model.mesh_vertadr[mesh_id]
+            vert_count = model.mesh_vertnum[mesh_id]
+            if vert_count > 0:
+                verts = model.mesh_vert[vert_start : vert_start + vert_count]
+                return float(gpos[2] + np.max(verts[:, 2]))
+        return float(gpos[2] + 0.1)
+    elif gtype == mujoco.mjtGeom.mjGEOM_BOX:
+        return float(gpos[2] + model.geom_size[geom_id][2])
+    elif gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
+        return float(gpos[2] + model.geom_size[geom_id][0])
+    elif gtype == mujoco.mjtGeom.mjGEOM_CYLINDER:
+        return float(gpos[2] + model.geom_size[geom_id][1])
+    else:
+        return float(gpos[2] + 0.1)
+
+
 def _is_horizontal_surface(
     model: mujoco.MjModel,
     data: mujoco.MjData,
@@ -161,7 +198,9 @@ def _is_horizontal_surface(
 ) -> tuple[bool, float, list[float]]:
     """Check if a body has a horizontal surface suitable for arm placement.
 
-    Looks for the topmost horizontal geom that could serve as a table/countertop.
+    Uses collision geom top-Z percentiles to find the actual flat surface
+    height, which is more accurate than the full AABB top (which includes
+    visual meshes and decorative elements above the surface).
 
     Args:
         model: MuJoCo model.
@@ -174,12 +213,27 @@ def _is_horizontal_surface(
         Tuple of (is_surface, surface_height, surface_dimensions).
     """
     center, size = _get_body_aabb(model, data, body_id)
-
-    # Surface is the top of the bounding box.
-    surface_height = center[2] + size[2] / 2
     surface_width = size[0]
     surface_depth = size[1]
     surface_area = surface_width * surface_depth
+
+    # Collect top-Z values from collision geoms only (skip visual-only geoms
+    # whose vertices can extend well above the physical surface).
+    top_zs = []
+    for g in range(model.ngeom):
+        if model.geom_bodyid[g] != body_id:
+            continue
+        tz = _get_collision_geom_top_z(model, data, g)
+        if tz is not None:
+            top_zs.append(tz)
+
+    if top_zs:
+        # Use 75th percentile: robust against both low-z parts (legs)
+        # and high-z outliers (decorative elements above the surface).
+        surface_height = float(np.percentile(top_zs, 75))
+    else:
+        # Fallback to AABB top if no collision geoms found.
+        surface_height = center[2] + size[2] / 2
 
     # Must be elevated and have enough area.
     if surface_height < min_height or surface_area < min_area:

@@ -456,7 +456,15 @@ def convert_gltf_to_obj(
                         console_logger.info(
                             f"Copied external texture: {dest_texture.name}"
                         )
-                texture_path = dest_texture
+                # Validate texture isn't a tiny placeholder (<1KB).
+                if dest_texture.stat().st_size < 1024:
+                    console_logger.warning(
+                        f"Discarding placeholder texture ({dest_texture.stat().st_size}B): "
+                        f"{dest_texture.name}"
+                    )
+                    dest_texture.unlink()
+                else:
+                    texture_path = dest_texture
 
             # Method 2: Try to extract embedded texture from mesh.
             if texture_path is None:
@@ -475,11 +483,21 @@ def convert_gltf_to_obj(
                             image = material.baseColorTexture
 
                         if image is not None:
-                            texture_path = texture_dir / f"{obj_path.stem}_texture.png"
-                            image.save(texture_path)
-                            console_logger.info(
-                                f"Extracted embedded texture: {texture_path.name}"
-                            )
+                            candidate_path = texture_dir / f"{obj_path.stem}_texture.png"
+                            image.save(candidate_path)
+                            # Validate texture isn't a tiny placeholder (<1KB).
+                            if candidate_path.stat().st_size < 1024:
+                                console_logger.warning(
+                                    f"Discarding placeholder texture "
+                                    f"({candidate_path.stat().st_size}B): "
+                                    f"{candidate_path.name}"
+                                )
+                                candidate_path.unlink()
+                            else:
+                                texture_path = candidate_path
+                                console_logger.info(
+                                    f"Extracted embedded texture: {texture_path.name}"
+                                )
                 except Exception as tex_err:
                     console_logger.debug(
                         f"Could not extract embedded texture: {tex_err}"
@@ -995,6 +1013,7 @@ def export_scene_to_mujoco(
         texture = spec.add_texture(name=texture_name)
         texture.file = texture_filename
         texture.type = mujoco.mjtTexture.mjTEXTURE_2D
+        texture.colorspace = mujoco.mjtColorSpace.mjCOLORSPACE_SRGB
 
         # Create material that uses this texture.
         # MjsMaterial.textures is indexed by mjtTextureRole.
@@ -1620,6 +1639,7 @@ def export_sdf_to_mujoco(
         texture = spec.add_texture(name=texture_name)
         texture.file = texture_filename
         texture.type = mujoco.mjtTexture.mjTEXTURE_2D
+        texture.colorspace = mujoco.mjtColorSpace.mjCOLORSPACE_SRGB
         material = spec.add_material(name=texture_name)
         material.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = texture_name
 
