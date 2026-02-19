@@ -37,6 +37,9 @@ class HssdRetrievalApp(flask.Flask):
         hssd_preprocessed_path: str | None = None,
         hssd_top_k: int = 5,
         clip_device: str | None = None,
+        azure_connection_string: str | None = None,
+        azure_container_name: str = "datasets",
+        azure_blob_prefix: str = "hssd-models",
     ) -> None:
         """Initialize Flask app.
 
@@ -45,12 +48,17 @@ class HssdRetrievalApp(flask.Flask):
                 on startup. Default: True for consistent latency.
             hssd_data_path: Path to HSSD models directory. If None, uses environment
                 variable HSSD_DATA_PATH or default "data/hssd-models".
+                Ignored when azure_connection_string is set.
             hssd_preprocessed_path: Path to preprocessed data directory. If None,
                 uses environment variable HSSD_PREPROCESSED_PATH or default
                 "data/preprocessed".
             hssd_top_k: Number of top CLIP candidates before size ranking (default: 5).
             clip_device: Target device for CLIP model (e.g., "cuda:0"). If None,
                 uses default (cuda if available, else cpu).
+            azure_connection_string: Azure Blob Storage connection string.
+                When set, meshes are streamed from blob storage.
+            azure_container_name: Azure container name (default: "datasets").
+            azure_blob_prefix: Blob prefix for HSSD data (default: "hssd-models").
         """
         super().__init__("hssd_retrieval_server")
 
@@ -61,6 +69,9 @@ class HssdRetrievalApp(flask.Flask):
         self._hssd_preprocessed_path = hssd_preprocessed_path
         self._hssd_top_k = hssd_top_k
         self._clip_device = clip_device
+        self._azure_connection_string = azure_connection_string
+        self._azure_container_name = azure_container_name
+        self._azure_blob_prefix = azure_blob_prefix
 
         self._scheduler = StrictRoundRobinScheduler()
         self._processing_thread: Thread | None = None
@@ -102,6 +113,11 @@ class HssdRetrievalApp(flask.Flask):
 
             from scenesmith.agent_utils.hssd_retrieval.config import HssdConfig
 
+            # Check for Azure connection string (param > env var).
+            azure_connection_string = self._azure_connection_string or os.environ.get(
+                "AZURE_HSSD_CONNECTION_STRING"
+            )
+
             # Use provided paths or fall back to environment variables/defaults.
             data_path = self._hssd_data_path or os.environ.get(
                 "HSSD_DATA_PATH", "data/hssd-models"
@@ -125,6 +141,9 @@ class HssdRetrievalApp(flask.Flask):
                 preprocessed_path=preprocessed_path,
                 use_top_k=self._hssd_top_k,
                 object_type_mapping=None,  # Will use defaults from __post_init__
+                azure_connection_string=azure_connection_string,
+                azure_container_name=self._azure_container_name,
+                azure_blob_prefix=self._azure_blob_prefix,
             )
             self._retriever = HssdRetriever(
                 config=config, clip_device=self._clip_device

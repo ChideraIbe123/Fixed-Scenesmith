@@ -17,6 +17,8 @@ from scenesmith.agent_utils.hssd_retrieval.config import HssdConfig
 from scenesmith.agent_utils.hssd_retrieval.data_loader import (
     HssdMeshMetadata,
     construct_hssd_mesh_path,
+    download_hssd_mesh_from_azure,
+    ensure_preprocessed_from_azure,
     load_preprocessed_data,
 )
 
@@ -63,6 +65,11 @@ class HssdRetriever:
         """
         self.config = config
         self.clip_device = clip_device
+
+        # If Azure is configured, download preprocessed data before loading.
+        if config.use_azure:
+            ensure_preprocessed_from_azure(config)
+
         self.preprocessed_data = load_preprocessed_data(config.preprocessed_path)
         console_logger.info(f"HSSD retriever initialized (clip_device={clip_device})")
 
@@ -105,9 +112,12 @@ class HssdRetriever:
             Mesh in HSM canonical coordinates if alignment data available,
             otherwise in original HSSD coordinates (both Y-up).
         """
-        mesh_path = construct_hssd_mesh_path(self.config.data_path, mesh_id)
-
-        mesh = trimesh.load(mesh_path, force="mesh")
+        if self.config.use_azure:
+            buffer = download_hssd_mesh_from_azure(self.config, mesh_id)
+            mesh = trimesh.load(buffer, file_type="glb", force="mesh")
+        else:
+            mesh_path = construct_hssd_mesh_path(self.config.data_path, mesh_id)
+            mesh = trimesh.load(mesh_path, force="mesh")
         if not isinstance(mesh, trimesh.Trimesh):
             raise ValueError(f"Loaded mesh is not a Trimesh: {type(mesh)}")
 

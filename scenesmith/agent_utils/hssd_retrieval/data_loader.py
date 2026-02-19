@@ -1,13 +1,20 @@
 """Data loading utilities for HSSD preprocessed indices and embeddings."""
 
+from __future__ import annotations
+
+import io
 import json
 import logging
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import yaml
+
+if TYPE_CHECKING:
+    from scenesmith.agent_utils.hssd_retrieval.config import HssdConfig
 
 console_logger = logging.getLogger(__name__)
 
@@ -205,3 +212,92 @@ def construct_hssd_mesh_path(hssd_dir_path: Path, mesh_id: str) -> Path:
         raise FileNotFoundError(f"HSSD mesh not found: {mesh_path}")
 
     return mesh_path
+
+
+def download_hssd_mesh_from_azure(config: HssdConfig, mesh_id: str) -> io.BytesIO:
+    """Download an HSSD mesh from Azure Blob Storage into memory.
+
+    Args:
+        config: HSSD config with Azure connection details.
+        mesh_id: HSSD mesh ID (SHA-1 hash).
+
+    Returns:
+        BytesIO buffer containing the GLB file data.
+
+    Raises:
+        FileNotFoundError: If the blob does not exist.
+        RuntimeError: If Azure download fails.
+    """
+    from azure.core.exceptions import ResourceNotFoundError
+    from azure.storage.blob import BlobClient
+
+    first_char = mesh_id[0]
+    blob_name = f"{config.azure_blob_prefix}/objects/{first_char}/{mesh_id}.glb"
+
+    try:
+        blob_client = BlobClient.from_connection_string(
+            config.azure_connection_string,
+            container_name=config.azure_container_name,
+            blob_name=blob_name,
+        )
+        stream = blob_client.download_blob()
+        buffer = io.BytesIO(stream.readall())
+        buffer.seek(0)
+        return buffer
+    except ResourceNotFoundError:
+        raise FileNotFoundError(
+            f"HSSD mesh not found in Azure blob: {blob_name}"
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to download mesh {mesh_id} from Azure: {e}")
+
+
+def ensure_preprocessed_from_azure(config: HssdConfig) -> Path:
+    """Download preprocessed HSSD data from Azure Blob if not cached locally.
+
+    Downloads the 4 preprocessed files (index, embeddings, embedding index,
+    categories) to config.preprocessed_path. Skips files that already exist.
+
+    Args:
+        config: HSSD config with Azure connection details.
+
+    Returns:
+        Path to local directory containing preprocessed files.
+    """
+    from azure.storage.blob import ContainerClient
+
+    preprocessed_path = config.preprocessed_path
+    preprocessed_path.mkdir(parents=True, exist_ok=True)
+
+    files = [
+        "hssd_wnsynsetkey_index.json",
+        "clip_hssd_embeddings.npy",
+        "clip_hssd_embeddings_index.yaml",
+        "object_categories.json",
+    ]
+
+    container_client = ContainerClient.from_connection_string(
+        config.azure_connection_string,
+        container_name=config.azure_container_name,
+    )
+
+    for filename in files:
+        local_path = preprocessed_path / filename
+        if local_path.exists():
+            console_logger.debug(f"Preprocessed file already cached: {filename}")
+            continue
+
+        blob_name = f"{config.azure_blob_prefix}/preprocessed/{filename}"
+        console_logger.info(f"Downloading preprocessed file from Azure: {blob_name}")
+
+        blob_client = container_client.get_blob_client(blob_name)
+        data = blob_client.download_blob().readall()
+
+        with open(local_path, "wb") as f:
+            f.write(data)
+
+        console_logger.info(
+            f"Downloaded {filename} ({len(data) / 1024 / 1024:.1f} MB)"
+        )
+
+    return preprocessed_path

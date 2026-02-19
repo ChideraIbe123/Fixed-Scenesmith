@@ -44,6 +44,9 @@ class HssdRetrievalServer:
         hssd_preprocessed_path: str | None = None,
         hssd_top_k: int = 5,
         clip_device: str | None = None,
+        azure_connection_string: str | None = None,
+        azure_container_name: str = "datasets",
+        azure_blob_prefix: str = "hssd-models",
     ) -> None:
         """Initialize the HSSD retrieval server manager.
 
@@ -56,12 +59,17 @@ class HssdRetrievalServer:
                 the retriever is loaded lazily on first request. Default: True.
             hssd_data_path: Path to HSSD models directory. If None, uses environment
                 variable HSSD_DATA_PATH or default "data/hssd-models".
+                Ignored when azure_connection_string is set.
             hssd_preprocessed_path: Path to preprocessed data directory. If None,
                 uses environment variable HSSD_PREPROCESSED_PATH or default
                 "data/preprocessed".
             hssd_top_k: Number of top CLIP candidates before size ranking (default: 5).
             clip_device: Target device for CLIP model (e.g., "cuda:0"). If None,
                 uses default (cuda if available, else cpu).
+            azure_connection_string: Azure Blob Storage connection string.
+                When set, meshes are streamed from blob storage.
+            azure_container_name: Azure container name (default: "datasets").
+            azure_blob_prefix: Blob prefix for HSSD data (default: "hssd-models").
 
         Raises:
             ValueError: If the specified port is not available.
@@ -76,6 +84,9 @@ class HssdRetrievalServer:
         self._hssd_preprocessed_path = hssd_preprocessed_path
         self._hssd_top_k = hssd_top_k
         self._clip_device = clip_device
+        self._azure_connection_string = azure_connection_string
+        self._azure_container_name = azure_container_name
+        self._azure_blob_prefix = azure_blob_prefix
         self._app: HssdRetrievalApp | None = None
         self._server_thread: Thread | None = None
         self._running = False
@@ -107,6 +118,9 @@ class HssdRetrievalServer:
                 hssd_preprocessed_path=self._hssd_preprocessed_path,
                 hssd_top_k=self._hssd_top_k,
                 clip_device=self._clip_device,
+                azure_connection_string=self._azure_connection_string,
+                azure_container_name=self._azure_container_name,
+                azure_blob_prefix=self._azure_blob_prefix,
             )
 
             # Start the processing queue.

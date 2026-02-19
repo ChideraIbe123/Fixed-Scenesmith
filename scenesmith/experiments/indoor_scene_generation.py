@@ -1398,6 +1398,18 @@ class IndoorSceneGenerationExperiment(BaseExperiment):
             f"(CLIP device: {retrieval_device or 'default'})"
         )
 
+        # Pass Azure config if present.
+        azure_kwargs = {}
+        azure_conn_str = getattr(hssd_config, "azure_connection_string", None)
+        if azure_conn_str:
+            azure_kwargs["azure_connection_string"] = str(azure_conn_str)
+            azure_kwargs["azure_container_name"] = str(
+                getattr(hssd_config, "azure_container_name", "datasets")
+            )
+            azure_kwargs["azure_blob_prefix"] = str(
+                getattr(hssd_config, "azure_blob_prefix", "hssd-models")
+            )
+
         self.hssd_server = HssdRetrievalServer(
             host=server_config.host,
             port=server_config.port,
@@ -1406,6 +1418,7 @@ class IndoorSceneGenerationExperiment(BaseExperiment):
             hssd_preprocessed_path=str(hssd_config.preprocessed_path),
             hssd_top_k=hssd_config.use_top_k,
             clip_device=retrieval_device,
+            **azure_kwargs,
         )
 
         self.hssd_server.start()

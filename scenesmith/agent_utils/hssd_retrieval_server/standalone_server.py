@@ -72,6 +72,26 @@ def parse_arguments() -> argparse.Namespace:
         default=5,
         help="Number of top CLIP candidates before size ranking (default: %(default)s).",
     )
+    parser.add_argument(
+        "--azure-connection-string",
+        type=str,
+        default=None,
+        help="Azure Blob Storage connection string. When set, meshes are streamed "
+        "from blob storage instead of loaded from local data_path. Can also be "
+        "set via AZURE_HSSD_CONNECTION_STRING environment variable.",
+    )
+    parser.add_argument(
+        "--azure-container-name",
+        type=str,
+        default="datasets",
+        help="Azure Blob Storage container name (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--azure-blob-prefix",
+        type=str,
+        default="hssd-models",
+        help="Blob prefix for HSSD data (default: %(default)s).",
+    )
 
     return parser.parse_args()
 
@@ -120,6 +140,9 @@ def main() -> int:
             hssd_data_path=args.hssd_data_path,
             hssd_preprocessed_path=args.hssd_preprocessed_path,
             hssd_top_k=args.hssd_top_k,
+            azure_connection_string=args.azure_connection_string,
+            azure_container_name=args.azure_container_name,
+            azure_blob_prefix=args.azure_blob_prefix,
         )
         server.start()
 
