@@ -10,7 +10,9 @@
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+            "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+            "urdf-loader": "https://cdn.jsdelivr.net/npm/urdf-loader@0.12.6/src/URDFLoader.js"
         }
     }
     </script>
@@ -30,6 +32,7 @@
         header {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             padding: 0 24px;
             height: 56px;
             border-bottom: 1px solid #2a2a2a;
@@ -40,6 +43,98 @@
             font-weight: 600;
             letter-spacing: 4px;
             color: #fff;
+        }
+        #addRobotBtn {
+            padding: 8px 16px;
+            background: #1a1a1a;
+            color: #ccc;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #addRobotBtn:hover { border-color: #555; color: #fff; }
+
+        /* Robot upload modal */
+        #robot-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+        }
+        #robot-modal.open { display: flex; }
+        .modal-box {
+            background: #111;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 32px;
+            width: 420px;
+            max-width: 90vw;
+        }
+        .modal-box h2 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #fff;
+            margin-bottom: 20px;
+        }
+        .upload-group {
+            margin-bottom: 16px;
+        }
+        .upload-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .upload-group input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 10px 12px;
+            background: #0a0a0a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            color: #ccc;
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+        }
+        .upload-group input[type="file"]::file-selector-button {
+            background: #222;
+            color: #ccc;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 4px 12px;
+            margin-right: 12px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+        .modal-actions .btn { flex: 1; }
+        .btn-ghost {
+            background: #1a1a1a;
+            color: #888;
+            border: 1px solid #2a2a2a;
+        }
+        .btn-ghost:hover { background: #222; color: #ccc; }
+        #robot-status {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #666;
+            min-height: 18px;
         }
 
         .layout {
@@ -256,7 +351,28 @@
 <body>
     <header>
         <h1>TALIK</h1>
+        <button id="addRobotBtn" onclick="openRobotModal()">+ Add Robot</button>
     </header>
+
+    <!-- Robot upload modal -->
+    <div id="robot-modal">
+        <div class="modal-box">
+            <h2>Add Robot</h2>
+            <div class="upload-group">
+                <label>URDF File</label>
+                <input type="file" id="urdfFile" accept=".urdf,.xacro,.xml">
+            </div>
+            <div class="upload-group">
+                <label>STL Mesh Files</label>
+                <input type="file" id="stlFiles" accept=".stl" multiple>
+            </div>
+            <div id="robot-status"></div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeRobotModal()">Cancel</button>
+                <button class="btn" id="uploadRobotBtn" onclick="uploadRobot()">Upload & Load</button>
+            </div>
+        </div>
+    </div>
 
     <div class="layout">
         <aside class="sidebar">
@@ -312,6 +428,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+        import URDFLoader from 'urdf-loader';
 
         // ---- Main viewer ----
         let renderer, scene, camera, controls;
@@ -889,6 +1006,159 @@
             } catch (e) { alert('Error: ' + e.message); }
             btn.disabled = false; btn.textContent = 'Load Existing Scene';
         };
+
+        // ---- Robot upload ----
+
+        window.openRobotModal = function() {
+            document.getElementById('robot-modal').classList.add('open');
+            document.getElementById('robot-status').textContent = '';
+        };
+
+        window.closeRobotModal = function() {
+            document.getElementById('robot-modal').classList.remove('open');
+        };
+
+        window.uploadRobot = async function() {
+            const urdfInput = document.getElementById('urdfFile');
+            const stlInput = document.getElementById('stlFiles');
+            const statusEl = document.getElementById('robot-status');
+            const btn = document.getElementById('uploadRobotBtn');
+
+            if (!urdfInput.files.length) {
+                statusEl.textContent = 'Please select a URDF file';
+                statusEl.style.color = '#ff4444';
+                return;
+            }
+            if (!stlInput.files.length) {
+                statusEl.textContent = 'Please select STL mesh files';
+                statusEl.style.color = '#ff4444';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Uploading...';
+            statusEl.textContent = 'Uploading robot files...';
+            statusEl.style.color = '#888';
+
+            const formData = new FormData();
+            formData.append('urdf', urdfInput.files[0]);
+            for (const f of stlInput.files) {
+                formData.append('stl_files', f);
+            }
+
+            try {
+                const res = await fetch('/api/upload-robot', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    statusEl.textContent = data.detail || 'Upload failed';
+                    statusEl.style.color = '#ff4444';
+                    btn.disabled = false;
+                    btn.textContent = 'Upload & Load';
+                    return;
+                }
+
+                statusEl.textContent = 'Loading robot into scene...';
+                closeRobotModal();
+                loadRobotURDF(data.urdf_url);
+
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                statusEl.style.color = '#ff4444';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Upload & Load';
+        };
+
+        function loadRobotURDF(urdfUrl) {
+            // Ensure viewer is initialized
+            if (!viewerInited) {
+                viewerInited = true;
+                window._initViewer();
+                showState('done');
+            }
+            requestAnimationFrame(() => window._viewerResize());
+
+            const loader = new URDFLoader();
+
+            // The URDF references meshes with relative paths like "meshes/foo.stl"
+            // urdf-loader resolves them relative to the URDF's directory
+            // No package:// mapping needed since we rewrote them server-side
+
+            loader.load(urdfUrl, (robot) => {
+                robot.name = 'Robot';
+
+                // Set material and shadows on all meshes
+                robot.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        // STL meshes loaded by urdf-loader get a default Phong material
+                        // Upgrade to a nicer PBR material
+                        if (child.material && child.material.isMeshPhongMaterial) {
+                            const pbr = new THREE.MeshStandardMaterial({
+                                color: child.material.color || 0x444444,
+                                metalness: 0.3,
+                                roughness: 0.6,
+                            });
+                            child.material = pbr;
+                        }
+                    }
+                });
+
+                // Check if there's already a scene loaded
+                let hasExistingScene = false;
+                scene.traverse(c => { if (c.isMesh) hasExistingScene = true; });
+
+                if (hasExistingScene) {
+                    robot.position.copy(controls.target);
+                }
+
+                scene.add(robot);
+
+                // Fit camera if robot is the only thing
+                if (!hasExistingScene) {
+                    const box = new THREE.Box3().setFromObject(robot);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const dist = maxDim * 2.5;
+
+                    controls.target.copy(center);
+                    camera.position.set(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7);
+                    camera.near = maxDim * 0.005;
+                    camera.far = maxDim * 20;
+                    camera.updateProjectionMatrix();
+                    controls.update();
+
+                    const dirLight = scene.children.find(c => c.isDirectionalLight && c.castShadow);
+                    if (dirLight) {
+                        const pad = maxDim * 1.5;
+                        dirLight.position.set(center.x + maxDim, center.y + maxDim * 1.2, center.z + maxDim);
+                        dirLight.target.position.copy(center);
+                        dirLight.target.updateMatrixWorld();
+                        dirLight.shadow.camera.left = -pad;
+                        dirLight.shadow.camera.right = pad;
+                        dirLight.shadow.camera.top = pad;
+                        dirLight.shadow.camera.bottom = -pad;
+                        dirLight.shadow.camera.near = 0.001;
+                        dirLight.shadow.camera.far = maxDim * 8;
+                        dirLight.shadow.camera.updateProjectionMatrix();
+                    }
+                }
+
+                const overlay = document.getElementById('loading-overlay');
+                if (overlay) overlay.style.display = 'none';
+
+                console.log('Robot loaded:', Object.keys(robot.joints || {}));
+            }, undefined, (err) => {
+                console.error('URDF load error:', err);
+                alert('Failed to load robot: ' + err.message);
+            });
+        }
 
         buildStageBar();
     </script>

@@ -1,5 +1,6 @@
 """Main HSSD retrieval logic with two-stage process: CLIP → size ranking."""
 
+import gc
 import logging
 
 from dataclasses import dataclass
@@ -222,6 +223,7 @@ class HssdRetriever:
         console_logger.info(f"Processing {len(top_k_meshes)} CLIP-filtered candidates")
 
         candidates: list[RetrievalCandidate] = []
+        effective_max = max_candidates if max_candidates is not None else len(top_k_meshes)
 
         for mesh_id, clip_score in top_k_meshes:
             metadata = self.preprocessed_data.get_metadata(mesh_id)
@@ -238,9 +240,8 @@ class HssdRetriever:
                 continue
 
             if desired_dimensions is not None:
-                mesh_extents = mesh.extents
                 bbox_score = self._calculate_bbox_score(
-                    target_dimensions=desired_dimensions, mesh_extents=mesh_extents
+                    target_dimensions=desired_dimensions, mesh_extents=mesh.extents
                 )
             else:
                 bbox_score = 0.0
@@ -252,23 +253,25 @@ class HssdRetriever:
                 clip_score=clip_score,
                 bbox_score=bbox_score,
             )
-            candidates.append(candidate)
 
             console_logger.debug(
                 f"Candidate {mesh_id[:8]}: CLIP={clip_score:.3f}, "
                 f"bbox={bbox_score:.3f}, extents={mesh.extents}"
             )
 
+            # Insert into sorted candidates list, evict worst if over limit.
+            candidates.append(candidate)
+            candidates.sort(key=lambda c: c.bbox_score)
+
+            if len(candidates) > effective_max:
+                evicted = candidates.pop()  # Remove worst (highest bbox_score)
+                del evicted.mesh
+                del evicted
+                gc.collect()
+
         if not candidates:
             console_logger.warning("No valid candidates found after mesh loading")
             return []
-
-        # Sort by bbox_score (lower is better).
-        candidates.sort(key=lambda c: c.bbox_score)
-
-        # Limit results if requested.
-        if max_candidates is not None and len(candidates) > max_candidates:
-            candidates = candidates[:max_candidates]
 
         console_logger.info(
             f"Returning {len(candidates)} candidates (sorted by bbox_score)"

@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -20,7 +21,7 @@ from typing import Optional
 
 import uvicorn
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -441,8 +442,75 @@ async def load_existing():
     return JSONResponse({"status": "done", "glb_size_mb": round(glb_path.stat().st_size / 1e6, 1)})
 
 
-# Static files: serve renders/ and outputs/ directories for backward compatibility
-# with `python -m http.server` usage. Must be mounted AFTER API routes.
+ROBOT_UPLOADS_DIR = BASE_DIR / "outputs" / "robot_uploads"
+
+
+@app.post("/api/upload-robot")
+async def upload_robot(
+    urdf: UploadFile = File(...),
+    stl_files: list[UploadFile] = File(...),
+):
+    """Upload URDF + STL files. Saves them to a served directory and rewrites
+    package:// URIs so the browser-side urdf-loader can fetch them."""
+
+    robot_name = Path(urdf.filename).stem
+    robot_dir = ROBOT_UPLOADS_DIR / robot_name
+    meshes_dir = robot_dir / "meshes"
+
+    # Clean previous upload of same robot
+    if robot_dir.exists():
+        shutil.rmtree(robot_dir)
+    robot_dir.mkdir(parents=True)
+    meshes_dir.mkdir()
+
+    try:
+        # Save STL files flat into meshes/
+        stl_names = []
+        for stl in stl_files:
+            stl_path = meshes_dir / stl.filename
+            stl_content = await stl.read()
+            stl_path.write_bytes(stl_content)
+            stl_names.append(stl.filename)
+            logger.info(f"Saved STL: {stl_path} ({len(stl_content)} bytes)")
+
+        # Save and rewrite URDF — replace package:// mesh URIs with relative
+        # paths like ./meshes/filename.stl so urdf-loader can fetch them.
+        urdf_text = (await urdf.read()).decode("utf-8")
+
+        # Build lookup: lowercase basename -> actual filename
+        stl_lookup = {name.lower(): name for name in stl_names}
+
+        def _rewrite_mesh_uri(match):
+            original = match.group(1)
+            basename = Path(original).name.lower()
+            if basename in stl_lookup:
+                return f'filename="meshes/{stl_lookup[basename]}"'
+            logger.warning(f"No uploaded mesh matches: {original}")
+            return match.group(0)
+
+        urdf_text = re.sub(r'filename="([^"]+)"', _rewrite_mesh_uri, urdf_text)
+        urdf_path = robot_dir / urdf.filename
+        urdf_path.write_text(urdf_text)
+        logger.info(f"Saved URDF: {urdf_path} (rewrote {len(stl_lookup)} mesh paths)")
+
+        # Return the URL path the frontend will use to load via urdf-loader
+        urdf_url = f"/robot-files/{robot_name}/{urdf.filename}"
+        return JSONResponse({
+            "status": "done",
+            "robot_name": robot_name,
+            "urdf_url": urdf_url,
+            "meshes": stl_names,
+        })
+
+    except Exception as e:
+        logger.exception("Robot upload failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Static files: serve renders/, outputs/, and robot uploads.
+# Must be mounted AFTER API routes.
+ROBOT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/robot-files", StaticFiles(directory=str(ROBOT_UPLOADS_DIR)), name="robot-files")
 if (BASE_DIR / "renders").exists():
     app.mount("/renders", StaticFiles(directory=str(BASE_DIR / "renders")), name="renders")
 if (BASE_DIR / "outputs").exists():
