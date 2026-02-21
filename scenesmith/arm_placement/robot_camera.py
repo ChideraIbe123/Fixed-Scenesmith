@@ -22,22 +22,22 @@ console_logger = logging.getLogger(__name__)
 # fovy: field of view in degrees.
 CAMERA_MOUNT_POINTS = {
     "end_effector": {
-        "body": "end_effector_link",
-        "pos": [0.0, 0.0, 0.02],
-        "quat": [0.5, 0.5, -0.5, 0.5],  # Looking forward along the gripper.
-        "fovy": 60,
+        "body": "link4",
+        "pos": [0.0, 0.0, 0.025],  # On forearm, looking forward past wrist and claw.
+        "quat": [0.707, 0.0, 0.707, 0.0],  # 90° around Y: maps body +X → camera -Z.
+        "fovy": 100,
     },
     "wrist": {
         "body": "link5",
         "pos": [0.0, 0.0, 0.03],
-        "quat": [0.5, 0.5, -0.5, 0.5],
-        "fovy": 75,
+        "quat": [0.707, 0.0, 0.707, 0.0],  # 90° around Y: maps body +X → camera -Z.
+        "fovy": 110,
     },
     "base": {
         "body": "link0",
         "pos": [0.0, 0.0, 0.05],
         "quat": [1.0, 0.0, 0.0, 0.0],  # Looking forward from base.
-        "fovy": 90,
+        "fovy": 120,
     },
 }
 
@@ -85,7 +85,7 @@ class RobotCamera:
             self._mount_config = {
                 "body": mount_point,
                 "pos": [0.0, 0.0, 0.02],
-                "quat": [0.5, 0.5, -0.5, 0.5],
+                "quat": [0.707, 0.0, 0.707, 0.0],
                 "fovy": 60,
             }
 

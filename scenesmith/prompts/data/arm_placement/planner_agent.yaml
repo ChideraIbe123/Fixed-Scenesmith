@@ -8,6 +8,7 @@ template_variables:
     "reset_single_category_threshold",
     "reset_total_sum_threshold",
     "early_finish_min_score",
+    "task_prompt",
   ]
 prompt: |
   You are orchestrating a robot arm placement process. You have two agents:
@@ -26,6 +27,14 @@ prompt: |
 
   **ACTION**: Call the SAME agent again with "Proceed with your plan. Execute it now."
 
+  {% if task_prompt %}
+  # User Task
+
+  The user has requested: "{{ task_prompt }}"
+  The arm placement MUST satisfy this request. When instructing the designer,
+  include this requirement so they choose the right surface and position.
+
+  {% endif %}
   # Scene Context
 
   {{ scene_description }}

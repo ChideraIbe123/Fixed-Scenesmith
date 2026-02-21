@@ -16,6 +16,10 @@ from agents import FunctionTool, ToolOutputImage, ToolOutputText, function_tool
 
 from scenesmith.arm_placement.mujoco_renderer import render_scene
 from scenesmith.arm_placement.scene_analyzer import SceneDescription
+from scenesmith.arm_placement.tools.designer_tools import (
+    _get_arm_body_ids,
+    _set_arm_home_qpos,
+)
 from scenesmith.utils.openai import encode_image_to_base64
 
 console_logger = logging.getLogger(__name__)
@@ -146,6 +150,13 @@ class CriticTools:
         rotation = arm_state["rotation"]
         surface = arm_state["surface"]
 
+        # Find the surface info first (needed for grounding check).
+        surface_info = None
+        for s in self.scene_description.surfaces:
+            if s.body_name == surface or s.name == surface:
+                surface_info = s
+                break
+
         # Find objects within reach.
         arm_xy = np.array(pos[:2])
         within_reach = []
@@ -158,45 +169,83 @@ class CriticTools:
             elif dist < 0.8:
                 nearby_but_far.append(f"{f.name} (dist={dist:.2f}m)")
 
-        # Check collision status by loading the merged scene.
+        # Check collision and grounding status by loading the merged scene.
         collision_info = "unknown"
+        grounding_info = "unknown"
         try:
             scene_path = self._get_current_scene_path()
             model = mujoco.MjModel.from_xml_path(str(scene_path))
             data = mujoco.MjData(model)
+            _set_arm_home_qpos(model, data)
             mujoco.mj_forward(model, data)
 
+            # Use proper arm body ID detection.
+            arm_body_ids = _get_arm_body_ids(model)
+
             # Check contacts involving arm bodies.
-            arm_contacts = []
+            surface_contacts = []
+            object_collisions = []
             for c in range(data.ncon):
                 contact = data.contact[c]
                 geom1_body = model.geom_bodyid[contact.geom1]
                 geom2_body = model.geom_bodyid[contact.geom2]
-                body1_name = model.body(geom1_body).name
-                body2_name = model.body(geom2_body).name
 
-                # Check if either body is part of the arm.
-                is_arm1 = "link" in body1_name.lower() or "omx" in body1_name.lower()
-                is_arm2 = "link" in body2_name.lower() or "omx" in body2_name.lower()
-                if is_arm1 or is_arm2:
-                    other = body2_name if is_arm1 else body1_name
-                    if other not in arm_contacts:
-                        arm_contacts.append(other)
+                is_arm1 = geom1_body in arm_body_ids
+                is_arm2 = geom2_body in arm_body_ids
+                if not (is_arm1 or is_arm2):
+                    continue
+                # Skip arm self-collisions.
+                if is_arm1 and is_arm2:
+                    continue
 
-            if arm_contacts:
-                collision_info = f"Contacts detected with: {arm_contacts}"
+                other_body = geom2_body if is_arm1 else geom1_body
+                other = model.body(other_body).name
+
+                # Classify: surface contact vs object collision.
+                if surface and other.lower() == surface.lower():
+                    if other not in surface_contacts:
+                        surface_contacts.append(other)
+                else:
+                    if other not in object_collisions:
+                        object_collisions.append(other)
+
+            # Grounding check: compare arm base Z with surface height.
+            # Scene furniture geoms often have contype=0 so contacts
+            # may not be generated. Use the arm body position directly.
+            if surface_contacts:
+                grounding_info = f"YES — arm base is touching the surface ({surface_contacts})"
             else:
-                collision_info = "No collisions detected"
+                arm_base_id = None
+                for i in range(model.nbody):
+                    if model.body(i).name == "omx_f_base":
+                        arm_base_id = i
+                        break
+                if arm_base_id is not None and surface_info:
+                    base_z = float(data.xpos[arm_base_id][2])
+                    gap = abs(base_z - surface_info.height)
+                    if gap < 0.01:  # Within 10mm = grounded.
+                        grounding_info = f"YES — arm base at Z={base_z:.4f}, surface at Z={surface_info.height:.4f} (gap {gap*1000:.1f}mm)"
+                    else:
+                        grounding_info = (
+                            f"NO — arm base Z={base_z:.4f}, "
+                            f"surface={surface_info.height:.4f}, gap={gap:.4f}m"
+                        )
+                else:
+                    grounding_info = "UNKNOWN — could not determine arm base position"
+
+            # Collision info.
+            if object_collisions:
+                collision_info = (
+                    f"COLLISIONS DETECTED with: {object_collisions} — "
+                    "arm is penetrating scene objects!"
+                )
+            elif surface_contacts:
+                collision_info = "No object collisions (only expected surface contact)"
+            else:
+                collision_info = "No contacts detected at all"
 
         except Exception as e:
             collision_info = f"Could not check collisions: {e}"
-
-        # Find the surface info.
-        surface_info = None
-        for s in self.scene_description.surfaces:
-            if s.body_name == surface or s.name == surface:
-                surface_info = s
-                break
 
         surface_details = ""
         if surface_info:
@@ -215,7 +264,8 @@ class CriticTools:
             f"  Rotation: {rotation:.1f} degrees\n"
             f"  Reach radius: ~0.4m\n"
             f"{surface_details}\n"
-            f"\n  Objects within reach: {within_reach or 'none'}\n"
+            f"\n  Grounded (base touching surface): {grounding_info}\n"
+            f"  Objects within reach: {within_reach or 'none'}\n"
             f"  Objects nearby (outside reach): {nearby_but_far or 'none'}\n"
             f"\n  Collision status: {collision_info}"
         )

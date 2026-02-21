@@ -71,6 +71,12 @@ def parse_args() -> argparse.Namespace:
     # Agent configuration.
     agent_group = parser.add_argument_group("Agent configuration")
     agent_group.add_argument(
+        "--prompt",
+        type=str,
+        default="",
+        help="Task prompt for arm placement (e.g., 'Place the arm next to the dishes').",
+    )
+    agent_group.add_argument(
         "--model",
         type=str,
         default="gpt-5.2",
@@ -126,6 +132,26 @@ def parse_args() -> argparse.Namespace:
         help="Z rotation in degrees.",
     )
 
+    # VLA camera integration.
+    vla_group = parser.add_argument_group("VLA cameras")
+    vla_group.add_argument(
+        "--vla-cameras",
+        action="store_true",
+        help="Inject VLA cameras (third-person + wrist) after arm placement.",
+    )
+    vla_group.add_argument(
+        "--vla-cam-behind",
+        type=float,
+        default=0.45,
+        help="Third-person camera distance behind arm (default: 0.45m).",
+    )
+    vla_group.add_argument(
+        "--vla-cam-above",
+        type=float,
+        default=0.55,
+        help="Third-person camera height above surface (default: 0.55m).",
+    )
+
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
@@ -133,6 +159,35 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
+
+
+def _apply_vla_cameras(scene_xml_path: Path, args: argparse.Namespace) -> None:
+    """Inject VLA cameras and render previews if --vla-cameras is set."""
+    if not args.vla_cameras:
+        return
+
+    from scenesmith.arm_placement.vla_camera import (
+        VLACameraConfig,
+        inject_vla_cameras,
+        render_vla_camera_previews,
+    )
+
+    config = VLACameraConfig(
+        third_person_behind=args.vla_cam_behind,
+        third_person_above=args.vla_cam_above,
+    )
+
+    print("\nInjecting VLA cameras...")
+    inject_vla_cameras(scene_xml_path, config=config)
+    print(f"  Added vla_third_person + vla_wrist to {scene_xml_path}")
+
+    try:
+        preview_dir = scene_xml_path.parent / "renders" / "vla_preview"
+        previews = render_vla_camera_previews(scene_xml_path, output_dir=preview_dir, config=config)
+        for p in previews:
+            print(f"  Preview: {p}")
+    except Exception as e:
+        print(f"  Preview rendering skipped: {e}")
 
 
 async def run_agent_placement(args: argparse.Namespace) -> None:
@@ -147,6 +202,7 @@ async def run_agent_placement(args: argparse.Namespace) -> None:
         max_turns=args.max_turns,
         max_critique_rounds=args.max_critique_rounds,
         early_finish_min_score=args.early_finish_score,
+        task_prompt=args.prompt,
     )
 
     output_dir = args.output or args.scene_xml.parent / "mujoco_with_arm"
@@ -174,6 +230,7 @@ async def run_agent_placement(args: argparse.Namespace) -> None:
             print("\n  Final Scores:")
             for score in result.final_scores.get_scores():
                 print(f"    {score.name}: {score.grade}/10 - {score.comment}")
+        _apply_vla_cameras(Path(result.scene_xml_path), args)
     else:
         print(f"  Status: FAILED")
         print(f"  Error: {result.error}")
@@ -240,6 +297,8 @@ def run_manual_placement(args: argparse.Namespace) -> None:
         except Exception as e:
             print(f"\nRendering skipped (no display available): {e}")
             print("The merged scene XML is still valid and can be loaded in MuJoCo.")
+
+        _apply_vla_cameras(tools_obj.current_scene_xml, args)
 
 
 def main() -> None:

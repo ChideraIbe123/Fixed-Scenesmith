@@ -89,65 +89,86 @@ class SceneDescription:
         return "\n".join(lines)
 
 
-def _get_body_aabb(model: mujoco.MjModel, data: mujoco.MjData, body_id: int) -> tuple:
+def _build_body_geom_index(model: mujoco.MjModel) -> dict[int, list[int]]:
+    """Build a mapping from body_id to its geom IDs.
+
+    Avoids repeated O(ngeom) scans when querying individual bodies.
+    """
+    index: dict[int, list[int]] = {}
+    for g in range(model.ngeom):
+        bid = int(model.geom_bodyid[g])
+        if bid not in index:
+            index[bid] = []
+        index[bid].append(g)
+    return index
+
+
+def _get_body_aabb(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    body_id: int,
+    geom_index: dict[int, list[int]] | None = None,
+) -> tuple:
     """Compute approximate axis-aligned bounding box for a body.
 
-    Uses the body's geoms to estimate the bounding box.
+    Uses geom positions and MuJoCo's pre-computed bounding sphere radii
+    (geom_rbound) for fast approximation — no vertex transforms needed.
 
     Args:
         model: MuJoCo model.
         data: MuJoCo data.
         body_id: Body ID.
+        geom_index: Pre-built body→geom mapping (optional, for speed).
 
     Returns:
         Tuple of (center [x,y,z], size [sx,sy,sz]).
     """
-    geom_ids = []
-    for g in range(model.ngeom):
-        if model.geom_bodyid[g] == body_id:
-            geom_ids.append(g)
+    if geom_index is not None:
+        geom_ids = geom_index.get(body_id, [])
+    else:
+        geom_ids = [g for g in range(model.ngeom) if model.geom_bodyid[g] == body_id]
 
     if not geom_ids:
         pos = data.xpos[body_id]
         return list(pos), [0.1, 0.1, 0.1]
 
-    # Compute bounding box from all geom positions and sizes.
+    # Use geom_rbound (bounding sphere radius) for fast AABB approximation.
+    # This avoids expensive mesh vertex transforms while being accurate
+    # enough for furniture sizing and clearance estimation.
     mins = np.array([1e6, 1e6, 1e6])
     maxs = np.array([-1e6, -1e6, -1e6])
 
     for g in geom_ids:
         gpos = data.geom_xpos[g]
-        gsize = model.geom_size[g]
         gtype = model.geom_type[g]
 
         if gtype == mujoco.mjtGeom.mjGEOM_BOX:
-            half = gsize[:3]
+            # Boxes have exact half-sizes; use rotation-aware AABB.
+            xmat = data.geom_xmat[g].reshape(3, 3)
+            half = model.geom_size[g][:3]
+            # Rotated AABB half-extents = sum of absolute column contributions.
+            half_world = np.abs(xmat) @ half
+            mins = np.minimum(mins, gpos - half_world)
+            maxs = np.maximum(maxs, gpos + half_world)
         elif gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
-            half = np.array([gsize[0]] * 3)
+            r = model.geom_size[g][0]
+            mins = np.minimum(mins, gpos - r)
+            maxs = np.maximum(maxs, gpos + r)
         elif gtype == mujoco.mjtGeom.mjGEOM_CYLINDER:
-            half = np.array([gsize[0], gsize[0], gsize[1]])
+            # Use rbound for simplicity (tight enough for our purposes).
+            r = model.geom_rbound[g]
+            mins = np.minimum(mins, gpos - r)
+            maxs = np.maximum(maxs, gpos + r)
         elif gtype == mujoco.mjtGeom.mjGEOM_MESH:
-            # Use mesh AABB from model.
-            mesh_id = model.geom_dataid[g]
-            if mesh_id >= 0 and mesh_id < model.nmesh:
-                vert_start = model.mesh_vertadr[mesh_id]
-                vert_count = model.mesh_vertnum[mesh_id]
-                if vert_count > 0:
-                    verts = model.mesh_vert[vert_start : vert_start + vert_count]
-                    vert_min = np.min(verts, axis=0)
-                    vert_max = np.max(verts, axis=0)
-                    mins = np.minimum(mins, gpos + vert_min)
-                    maxs = np.maximum(maxs, gpos + vert_max)
-                    continue
-                else:
-                    half = np.array([0.1, 0.1, 0.1])
-            else:
-                half = np.array([0.1, 0.1, 0.1])
+            # Use MuJoCo's pre-computed bounding sphere radius — fast and
+            # avoids expensive per-vertex rotation transforms.
+            r = model.geom_rbound[g]
+            mins = np.minimum(mins, gpos - r)
+            maxs = np.maximum(maxs, gpos + r)
         else:
             half = np.array([0.1, 0.1, 0.1])
-
-        mins = np.minimum(mins, gpos - half)
-        maxs = np.maximum(maxs, gpos + half)
+            mins = np.minimum(mins, gpos - half)
+            maxs = np.maximum(maxs, gpos + half)
 
     center = (mins + maxs) / 2
     size = maxs - mins
@@ -177,7 +198,9 @@ def _get_collision_geom_top_z(
             vert_count = model.mesh_vertnum[mesh_id]
             if vert_count > 0:
                 verts = model.mesh_vert[vert_start : vert_start + vert_count]
-                return float(gpos[2] + np.max(verts[:, 2]))
+                xmat = data.geom_xmat[geom_id].reshape(3, 3)
+                world_verts_z = xmat[2, :] @ verts.T + gpos[2]
+                return float(np.max(world_verts_z))
         return float(gpos[2] + 0.1)
     elif gtype == mujoco.mjtGeom.mjGEOM_BOX:
         return float(gpos[2] + model.geom_size[geom_id][2])
@@ -195,6 +218,7 @@ def _is_horizontal_surface(
     body_id: int,
     min_height: float = 0.3,
     min_area: float = 0.04,
+    geom_index: dict[int, list[int]] | None = None,
 ) -> tuple[bool, float, list[float]]:
     """Check if a body has a horizontal surface suitable for arm placement.
 
@@ -208,21 +232,24 @@ def _is_horizontal_surface(
         body_id: Body ID to check.
         min_height: Minimum height above ground for a valid surface.
         min_area: Minimum surface area in m^2.
+        geom_index: Pre-built body→geom mapping (optional, for speed).
 
     Returns:
         Tuple of (is_surface, surface_height, surface_dimensions).
     """
-    center, size = _get_body_aabb(model, data, body_id)
+    center, size = _get_body_aabb(model, data, body_id, geom_index)
     surface_width = size[0]
     surface_depth = size[1]
     surface_area = surface_width * surface_depth
 
     # Collect top-Z values from collision geoms only (skip visual-only geoms
     # whose vertices can extend well above the physical surface).
+    body_geoms = (geom_index or {}).get(body_id, None)
+    if body_geoms is None:
+        body_geoms = [g for g in range(model.ngeom) if model.geom_bodyid[g] == body_id]
+
     top_zs = []
-    for g in range(model.ngeom):
-        if model.geom_bodyid[g] != body_id:
-            continue
+    for g in body_geoms:
         tz = _get_collision_geom_top_z(model, data, g)
         if tz is not None:
             top_zs.append(tz)
@@ -289,9 +316,13 @@ def analyze_scene(scene_xml_path: Path) -> SceneDescription:
     elif "office" in name_str or "desk" in name_str:
         room_type = "office"
 
-    # Extract furniture and surfaces.
+    # Build geom index once for fast body→geom lookups.
+    geom_index = _build_body_geom_index(model)
+
+    # Extract furniture and surfaces, caching AABBs for the clearance loop.
     furniture_list = []
     surface_list = []
+    aabb_cache: dict[int, tuple[list, list]] = {}  # body_id → (center, size)
 
     for i in range(1, model.nbody):  # Skip world body.
         body_name = model.body(i).name
@@ -306,7 +337,8 @@ def analyze_scene(scene_xml_path: Path) -> SceneDescription:
         ):
             continue
 
-        center, size = _get_body_aabb(model, data, i)
+        center, size = _get_body_aabb(model, data, i, geom_index)
+        aabb_cache[i] = (center, size)
 
         furniture_list.append(
             FurnitureInfo(
@@ -319,7 +351,7 @@ def analyze_scene(scene_xml_path: Path) -> SceneDescription:
 
         # Check if this could be a placement surface.
         is_surface, surface_height, surface_dims = _is_horizontal_surface(
-            model, data, i
+            model, data, i, geom_index=geom_index
         )
         if is_surface:
             # Find nearby objects within arm reach.
@@ -336,12 +368,11 @@ def analyze_scene(scene_xml_path: Path) -> SceneDescription:
                 if dist < ARM_REACH_RADIUS * 2:
                     nearby.append(other_name)
 
-            # Estimate clearance (distance to nearest obstacle at surface level).
+            # Estimate clearance using cached AABBs.
             clearance = ARM_REACH_RADIUS  # Default.
-            for j in range(1, model.nbody):
+            for j, (other_center, other_size) in aabb_cache.items():
                 if j == i:
                     continue
-                other_center, other_size = _get_body_aabb(model, data, j)
                 # Check if other object is at similar height.
                 if abs(other_center[2] - center[2]) < 0.5:
                     dist = np.linalg.norm(

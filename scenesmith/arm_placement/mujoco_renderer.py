@@ -141,14 +141,17 @@ def _create_scene_option() -> mujoco.MjvOption:
         Configured MjvOption with no joint/actuator/contact visualization.
     """
     option = mujoco.MjvOption()
-    # MjvOption.flags is indexed by mjtVisFlag (visualization).
-    # Ensure debug visualizations are off for clean renders.
+    # Disable debug visualizations for clean renders.
     option.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = False
     option.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = False
     option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = False
     option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = False
     option.flags[mujoco.mjtVisFlag.mjVIS_COM] = False
     option.flags[mujoco.mjtVisFlag.mjVIS_CONSTRAINT] = False
+    # Disable coordinate frame arrows.
+    option.frame = mujoco.mjtFrame.mjFRAME_NONE
+    # Hide collision geoms (group 3) — only show visual meshes.
+    option.geomgroup[3] = 0
     return option
 
 
@@ -207,7 +210,21 @@ def render_scene(
 
     # Load model with enhanced lighting and colorspace fixes.
     model = _enhance_scene_xml(scene_xml_path, quality=quality)
+    # Disable contact computation — not needed for rendering and avoids
+    # stack overflow on scenes with many overlapping geoms.
+    model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_CONTACT
     data = mujoco.MjData(model)
+
+    # If model has a "home" keyframe, reset to it (compact arm pose).
+    try:
+        home_key_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_KEY, "home"
+        )
+        if home_key_id >= 0:
+            mujoco.mj_resetDataKeyframe(model, data, home_key_id)
+    except Exception:
+        pass
+
     mujoco.mj_forward(model, data)
 
     # Compute scene center if not provided.

@@ -49,6 +49,17 @@ prompt: |
   5. `observe_scene()` — Verify placement visually
   6. `adjust_arm_position(dx, dy, dz_rotation_deg)` — Fine-tune if needed
 
+  # Critical Physical Constraints
+
+  - The arm MUST rest flat on the surface with its base touching. The placement
+    tool will auto-clamp the arm to the surface. If the result still shows
+    "Grounded: WARNING", adjust the position.
+  - The arm MUST NOT collide with or penetrate any scene objects (bowls, plates,
+    cups, utensils, appliances, etc.). If placement reports "COLLISION WARNING",
+    you MUST immediately adjust the position to move away from colliding objects.
+  - Check for both grounding and collisions after every place_arm() or
+    adjust_arm_position() call.
+
   # Important Notes
 
   - Always call observe_scene() after placing or adjusting the arm

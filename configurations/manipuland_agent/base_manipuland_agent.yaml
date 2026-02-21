@@ -129,6 +129,10 @@ asset_manager:
       MANIPULAND: "small_objects"
       WALL_MOUNTED: "wall_objects"
       CEILING_MOUNTED: "ceiling_objects"
+    # Azure Blob Storage for HSSD models (streams meshes on-demand, no local download).
+    azure_connection_string: null  # Set via AZURE_HSSD_CONNECTION_STRING env var
+    azure_container_name: "datasets"
+    azure_blob_prefix: "hssd-models"
 
   # Objaverse (ObjectThor) retrieval configuration (only used when general_asset_source="objaverse")
   objaverse:

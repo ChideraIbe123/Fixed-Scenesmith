@@ -88,6 +88,7 @@ class ArmPlacementConfig:
     reasoning_effort_planner: str = "low"
     reasoning_effort_designer: str = "high"
     reasoning_effort_critic: str = "high"
+    task_prompt: str = ""
 
 
 @dataclass
@@ -236,6 +237,7 @@ class ArmPlacementAgent:
         console_logger.info("Step 4: Running planner agent...")
         runner_instruction = self.prompt_registry.get_prompt(
             ArmPlacementPrompts.PLANNER_RUNNER_INSTRUCTION,
+            task_prompt=self.cfg.task_prompt,
         )
 
         try:
@@ -338,6 +340,7 @@ class ArmPlacementAgent:
                 reset_single_category_threshold=self.cfg.reset_single_category_threshold,
                 reset_total_sum_threshold=self.cfg.reset_total_sum_threshold,
                 early_finish_min_score=self.cfg.early_finish_min_score,
+                task_prompt=self.cfg.task_prompt,
             ),
             model_settings=ModelSettings(
                 reasoning=Reasoning(effort=self.cfg.reasoning_effort_planner),
@@ -418,6 +421,7 @@ class ArmPlacementAgent:
 
         instruction = self.prompt_registry.get_prompt(
             ArmPlacementPrompts.DESIGNER_INITIAL_INSTRUCTION,
+            task_prompt=self.cfg.task_prompt,
         )
 
         result = await Runner.run(

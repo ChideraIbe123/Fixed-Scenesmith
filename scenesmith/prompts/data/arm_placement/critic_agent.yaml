@@ -24,14 +24,17 @@ prompt: |
 
   ## 1. Stability (0-10)
 
-  Is the arm securely placed on a suitable surface?
+  Is the arm securely placed on a suitable surface with its base touching?
+
+  **HARD RULE**: If the arm is floating above the surface (grounding=NO), score MUST be 0.
+  Check `get_arm_placement_details()` for the "Grounded" field.
 
   **Scoring Anchors:**
-  - **10**: Arm centered on wide, flat surface with plenty of margin
-  - **7**: Arm on stable surface but closer to edge than ideal
-  - **5**: Arm near edge of surface, base partially unsupported
+  - **10**: Arm base firmly touching the surface, centered with plenty of margin
+  - **7**: Arm on stable surface and grounded, but closer to edge than ideal
+  - **5**: Arm grounded but near edge of surface, base partially unsupported
   - **3**: Surface is narrow or unstable for the arm base
-  - **0**: Arm floating or on clearly unsuitable surface
+  - **0**: Arm floating above surface (not touching) or on clearly unsuitable surface
 
   ## 2. Reachability (0-10)
 
@@ -70,12 +73,17 @@ prompt: |
 
   Is the arm free from intersections with scene geometry?
 
+  **HARD RULE**: If `get_arm_placement_details()` reports "COLLISIONS DETECTED"
+  with any scene objects, score MUST be 0. The arm must NEVER penetrate or
+  go through any object in the scene. The only acceptable contact is the arm
+  base resting on its placement surface.
+
   **Scoring Anchors:**
-  - **10**: No contacts or intersections whatsoever
-  - **7**: Minor touching that wouldn't affect operation
+  - **10**: Only contact is arm base on surface (expected). No other contacts.
+  - **7**: Very minor touching with a nearby object that wouldn't affect operation
   - **5**: Some contact with nearby objects
   - **3**: Significant overlap with furniture
-  - **0**: Major penetration through scene geometry
+  - **0**: Arm penetrates through any scene object or furniture
 
   # Progressive Evaluation
 

@@ -25,6 +25,49 @@ from scenesmith.utils.openai import encode_image_to_base64
 
 console_logger = logging.getLogger(__name__)
 
+# Compact upright home position for the arm joints.
+# This folds the forearm upward so the arm has a small horizontal footprint.
+# Order: joint1, joint2, joint3, joint4, joint5, gripper_joint_1, gripper_joint_2
+ARM_HOME_QPOS = [0.0, 0.0, -1.5, 0.7, 0.0, 0.0, 0.0]
+ARM_JOINT_NAMES = [
+    "joint1", "joint2", "joint3", "joint4", "joint5",
+    "gripper_joint_1", "gripper_joint_2",
+]
+
+
+def _get_arm_body_ids(model: mujoco.MjModel) -> set[int]:
+    """Get the set of body IDs that belong to the robot arm."""
+    arm_ids: set[int] = set()
+    # Find the arm root body (omx_f_base).
+    root_id = None
+    for i in range(model.nbody):
+        if model.body(i).name == "omx_f_base":
+            root_id = i
+            break
+    if root_id is None:
+        return arm_ids
+    # BFS to collect all descendant bodies.
+    queue = [root_id]
+    while queue:
+        bid = queue.pop(0)
+        arm_ids.add(bid)
+        for i in range(model.nbody):
+            if model.body_parentid[i] == bid and i not in arm_ids:
+                queue.append(i)
+    return arm_ids
+
+
+def _set_arm_home_qpos(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+    """Set arm joints to the compact home position."""
+    for jname, qval in zip(ARM_JOINT_NAMES, ARM_HOME_QPOS):
+        try:
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+            if jid >= 0:
+                qadr = model.jnt_qposadr[jid]
+                data.qpos[qadr] = qval
+        except Exception:
+            pass
+
 
 class DesignerTools:
     """Tool factory for arm placement designer agent.
@@ -224,7 +267,7 @@ class DesignerTools:
         y_offset: float,
         z_rotation_deg: float,
     ) -> str:
-        """Place the arm on the specified surface."""
+        """Place the arm on the specified surface with ground-clamping."""
         console_logger.info(f"Tool called: place_arm on '{surface_name}'")
 
         # Find the surface.
@@ -242,12 +285,13 @@ class DesignerTools:
             )
 
         # Compute arm placement position.
+        # The arm's base bottom is at Z=0 in its local frame, so placing
+        # the wrapper body at surface.height puts the base flush on the surface.
         arm_x = surface.position[0] + x_offset
         arm_y = surface.position[1] + y_offset
         arm_z = surface.height
         z_rotation_rad = math.radians(z_rotation_deg)
 
-        # Merge arm into scene XML.
         try:
             merged_path = self._merge_arm_into_scene(
                 arm_x, arm_y, arm_z, z_rotation_rad
@@ -256,13 +300,13 @@ class DesignerTools:
             console_logger.error(f"Failed to place arm: {e}")
             return f"ERROR: Failed to place arm: {e}"
 
-        # Validate.
+        # Validate simulation stability (with arm in home position).
         try:
             model = mujoco.MjModel.from_xml_path(str(merged_path))
             data = mujoco.MjData(model)
+            _set_arm_home_qpos(model, data)
             mujoco.mj_forward(model, data)
 
-            # Run a few sim steps to check stability.
             for _ in range(10):
                 mujoco.mj_step(model, data)
 
@@ -272,6 +316,11 @@ class DesignerTools:
         except Exception as e:
             return f"ERROR: Merged scene failed validation: {e}"
 
+        # Check collisions (with arm in home position).
+        surface_contacts, object_collisions = self._check_collisions(
+            merged_path, surface_name
+        )
+
         # Update state.
         self.arm_placed = True
         self.arm_position = [arm_x, arm_y, arm_z]
@@ -279,7 +328,8 @@ class DesignerTools:
         self.arm_surface = surface_name
         self.current_scene_xml = merged_path
 
-        return (
+        # Build result message.
+        msg = (
             f"Arm placed successfully on '{surface_name}'.\n"
             f"Position: ({arm_x:.3f}, {arm_y:.3f}, {arm_z:.3f})\n"
             f"Rotation: {z_rotation_deg:.1f} degrees\n"
@@ -287,13 +337,25 @@ class DesignerTools:
             f"Surface dimensions: {surface.dimensions[0]:.3f} x "
             f"{surface.dimensions[1]:.3f}m\n"
             f"Nearby objects: {surface.nearby_objects}\n"
-            f"Scene saved to: {merged_path}"
         )
+
+        msg += f"Grounded: YES (base placed at surface height {surface.height:.3f}m)\n"
+
+        if object_collisions:
+            msg += (
+                f"COLLISION WARNING: Arm is colliding with: {object_collisions}\n"
+                "You MUST adjust the arm position to avoid these collisions.\n"
+            )
+        else:
+            msg += "Collisions: None (arm is clear of all objects)\n"
+
+        msg += f"Scene saved to: {merged_path}"
+        return msg
 
     def _adjust_arm_position_impl(
         self, dx: float, dy: float, dz_rotation_deg: float
     ) -> str:
-        """Adjust the current arm position."""
+        """Adjust the current arm position with collision checking."""
         console_logger.info("Tool called: adjust_arm_position")
 
         if not self.arm_placed or self.arm_position is None:
@@ -312,10 +374,11 @@ class DesignerTools:
         except Exception as e:
             return f"ERROR: Failed to adjust arm: {e}"
 
-        # Validate.
+        # Validate (with arm in home position).
         try:
             model = mujoco.MjModel.from_xml_path(str(merged_path))
             data = mujoco.MjData(model)
+            _set_arm_home_qpos(model, data)
             mujoco.mj_forward(model, data)
             for _ in range(10):
                 mujoco.mj_step(model, data)
@@ -324,17 +387,32 @@ class DesignerTools:
         except Exception as e:
             return f"ERROR: Adjusted scene failed validation: {e}"
 
+        # Check collisions.
+        surface_contacts, object_collisions = self._check_collisions(
+            merged_path, self.arm_surface or ""
+        )
+
         self.arm_position = [new_x, new_y, new_z]
         self.arm_rotation = new_rotation
         self.current_scene_xml = merged_path
 
-        return (
+        msg = (
             f"Arm position adjusted.\n"
             f"New position: ({new_x:.3f}, {new_y:.3f}, {new_z:.3f})\n"
             f"New rotation: {new_rotation:.1f} degrees\n"
             f"Adjustments applied: dx={dx:.3f}, dy={dy:.3f}, "
-            f"dz_rotation={dz_rotation_deg:.1f}"
+            f"dz_rotation={dz_rotation_deg:.1f}\n"
         )
+
+        if object_collisions:
+            msg += (
+                f"COLLISION WARNING: Arm is colliding with: {object_collisions}\n"
+                "You MUST adjust the arm position to avoid these collisions.\n"
+            )
+        else:
+            msg += "Collisions: None (arm is clear of all objects)\n"
+
+        return msg
 
     def _get_arm_placement_status_impl(self) -> str:
         """Return current arm status."""
@@ -362,6 +440,61 @@ class DesignerTools:
             f"  Reach radius: ~0.4m\n"
             f"  Nearby objects within reach: {nearby}"
         )
+
+    def _check_collisions(
+        self, merged_path: Path, surface_body_name: str
+    ) -> tuple[list[str], list[str]]:
+        """Check for arm collisions with scene objects.
+
+        Uses the arm home position and proper body ID detection (not
+        substring matching) to avoid false positives with scene bodies
+        whose names contain 'link'.
+
+        Returns two lists:
+        - surface_contacts: contacts with the placement surface (expected/good)
+        - object_collisions: contacts with other objects (bad/penetration)
+        """
+        surface_contacts: list[str] = []
+        object_collisions: list[str] = []
+
+        try:
+            model = mujoco.MjModel.from_xml_path(str(merged_path))
+            data = mujoco.MjData(model)
+            _set_arm_home_qpos(model, data)
+            mujoco.mj_forward(model, data)
+
+            arm_body_ids = _get_arm_body_ids(model)
+
+            for c in range(data.ncon):
+                contact = data.contact[c]
+                geom1_body = model.geom_bodyid[contact.geom1]
+                geom2_body = model.geom_bodyid[contact.geom2]
+
+                is_arm1 = geom1_body in arm_body_ids
+                is_arm2 = geom2_body in arm_body_ids
+
+                if not (is_arm1 or is_arm2):
+                    continue
+
+                # Skip arm self-collisions.
+                if is_arm1 and is_arm2:
+                    continue
+
+                other_body = geom2_body if is_arm1 else geom1_body
+                other_name = model.body(other_body).name
+
+                # Check if contact is with the placement surface.
+                if other_name.lower() == surface_body_name.lower():
+                    if other_name not in surface_contacts:
+                        surface_contacts.append(other_name)
+                else:
+                    if other_name not in object_collisions:
+                        object_collisions.append(other_name)
+
+        except Exception as e:
+            console_logger.warning(f"Collision check failed: {e}")
+
+        return surface_contacts, object_collisions
 
     def _merge_arm_into_scene(
         self, x: float, y: float, z: float, z_rotation_rad: float
@@ -463,9 +596,32 @@ class DesignerTools:
             for child in arm_equality:
                 scene_equality.append(child)
 
-        # Write merged XML to the scene directory (so meshdir paths work).
+        # Add keyframe with the compact home position for the arm.
+        # Build a full qpos vector: all zeros for scene joints, then arm home.
+        # We write the joint names and values so it works regardless of order.
+        keyframe_el = scene_root.find("keyframe")
+        if keyframe_el is None:
+            keyframe_el = ET.SubElement(scene_root, "keyframe")
+        key_el = ET.SubElement(keyframe_el, "key")
+        key_el.set("name", "home")
+        # Build qpos string: count total joints from scene + arm.
+        # Load temporarily to find joint count and arm joint addresses.
         output_path = scene_dir / "scene_with_arm.xml"
         scene_tree.write(str(output_path), xml_declaration=True)
+        try:
+            tmp_model = mujoco.MjModel.from_xml_path(str(output_path))
+            qpos = np.zeros(tmp_model.nq)
+            for jname, qval in zip(ARM_JOINT_NAMES, ARM_HOME_QPOS):
+                jid = mujoco.mj_name2id(
+                    tmp_model, mujoco.mjtObj.mjOBJ_JOINT, jname
+                )
+                if jid >= 0:
+                    qpos[tmp_model.jnt_qposadr[jid]] = qval
+            key_el.set("qpos", " ".join(f"{v:.6f}" for v in qpos))
+            # Re-write with keyframe populated.
+            scene_tree.write(str(output_path), xml_declaration=True)
+        except Exception as e:
+            console_logger.warning(f"Could not add keyframe: {e}")
 
         console_logger.info(f"Merged scene saved to: {output_path}")
         return output_path

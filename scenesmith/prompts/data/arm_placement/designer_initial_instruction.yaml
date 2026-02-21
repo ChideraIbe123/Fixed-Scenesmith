@@ -1,22 +1,31 @@
 name: "arm_placement_designer_initial_instruction"
-version: "1.0"
+version: "1.1"
 description: "Initial instruction for designer to place the arm"
-template_variables: []
+template_variables: ["task_prompt"]
 prompt: |
   Place the robot arm in this scene for the first time.
+
+  {% if task_prompt %}
+  USER TASK: "{{ task_prompt }}"
+  You MUST choose a surface and position that satisfies this request. For example,
+  if the user asks to place the arm near specific objects, find those objects in the
+  scene and position the arm within reach of them.
+  {% endif %}
 
   Follow this workflow:
   1. Call observe_scene() to see the current layout
   2. Call get_scene_info() to understand the room and furniture
   3. Call list_placement_surfaces() to find candidate surfaces
-  4. Choose the best surface based on placement guidelines
+  4. Choose the best surface based on placement guidelines{% if task_prompt %} AND the user's task{% endif %}
   5. Call place_arm() with appropriate surface, offsets, and rotation
-  6. Call observe_scene() to verify the placement looks good
+  6. Check the placement result for COLLISION WARNING or grounding issues
+  7. If collisions or grounding issues, call adjust_arm_position() to fix them
+  8. Call observe_scene() to verify the placement looks good
 
   Consider which surface gives the arm the best combination of:
-  - Stability (flat, sturdy, large enough for base)
+  - Stability (flat, sturdy, large enough for base — arm MUST touch the surface)
   - Reachability (objects nearby to manipulate)
-  - Clearance (room for arm movement)
-  - Task suitability (makes sense for the room type)
+  - Clearance (room for arm movement — arm MUST NOT collide with objects)
+  - Task suitability (makes sense for the room type{% if task_prompt %} and user task{% endif %})
 
   When complete, summarize your placement decision and reasoning.
