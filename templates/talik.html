@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talik</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            height: 56px;
+            border-bottom: 1px solid #2a2a2a;
+            flex-shrink: 0;
+        }
+        header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: 4px;
+            color: #fff;
+        }
+
+        .layout {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left sidebar */
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+            border-right: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            gap: 16px;
+        }
+        .sidebar label {
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #888;
+        }
+        .sidebar textarea {
+            flex: 1;
+            min-height: 120px;
+            max-height: 300px;
+            background: #111;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            padding: 12px;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .sidebar textarea:focus { border-color: #555; }
+        .sidebar textarea:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: #fff;
+            color: #0a0a0a;
+            border: none;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+        }
+        .btn:hover { background: #ddd; }
+        .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+        /* Main content area */
+        .main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .welcome { text-align: center; color: #444; }
+        .welcome h2 { font-size: 32px; font-weight: 300; margin-bottom: 8px; color: #555; }
+        .welcome p { font-size: 14px; }
+
+        .progress-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 32px;
+            width: 100%;
+            max-width: 640px;
+            padding: 24px;
+        }
+
+        .stage-bar { display: flex; gap: 4px; width: 100%; }
+        .stage-step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .stage-step .bar { height: 3px; width: 100%; background: #222; border-radius: 2px; transition: background 0.4s; }
+        .stage-step.active .bar { background: #fff; }
+        .stage-step.completed .bar { background: #666; }
+        .stage-step .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #444; transition: color 0.4s; }
+        .stage-step.active .label { color: #fff; }
+        .stage-step.completed .label { color: #666; }
+        .elapsed { font-size: 48px; font-weight: 300; color: #333; font-variant-numeric: tabular-nums; }
+        .preview-img { max-width: 100%; max-height: 320px; border-radius: 8px; border: 1px solid #2a2a2a; }
+
+        .log-tail {
+            width: 100%;
+            max-height: 120px;
+            overflow-y: auto;
+            background: #111;
+            border: 1px solid #1a1a1a;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 11px;
+            color: #555;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Three.js viewer */
+        #viewer-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        #viewer-container canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        #loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0a0a0a;
+            color: #555;
+            font-size: 14px;
+            z-index: 10;
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 2px solid #333;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Right detail panel */
+        #detail-panel {
+            width: 360px;
+            flex-shrink: 0;
+            border-left: 1px solid #2a2a2a;
+            background: #0d0d0d;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #detail-panel.open { display: flex; }
+
+        #detail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        #detail-header h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+        }
+        #detail-close {
+            width: 28px; height: 28px;
+            background: none;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #888;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-left: 12px;
+        }
+        #detail-close:hover { border-color: #555; color: #fff; }
+
+        #detail-viewer {
+            width: 100%;
+            height: 300px;
+            flex-shrink: 0;
+            position: relative;
+            background: #111;
+        }
+        #detail-viewer canvas { display: block; width: 100%; height: 100%; }
+
+        #detail-props {
+            padding: 16px 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .prop-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #1a1a1a;
+            font-size: 13px;
+        }
+        .prop-label { color: #666; }
+        .prop-value { color: #ccc; text-align: right; }
+
+        .error-msg { text-align: center; color: #ff4444; font-size: 14px; max-width: 480px; }
+        .error-msg h3 { margin-bottom: 8px; font-weight: 500; }
+        .error-msg p { color: #aa3333; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>TALIK</h1>
+    </header>
+
+    <div class="layout">
+        <aside class="sidebar">
+            <label>Scene Prompt</label>
+            <textarea id="prompt" placeholder="Describe your scene...&#10;&#10;e.g. A cozy kitchen with a wooden table, two chairs, and warm lighting"></textarea>
+            <button class="btn" id="generateBtn" onclick="generate()">Generate</button>
+            <button class="btn" id="cancelBtn" onclick="cancelJob()" style="display:none;background:#1a1a1a;color:#ff4444;border:1px solid #332222">Cancel</button>
+            <button class="btn" id="variationBtn" onclick="generateVariation()" style="display:none;background:#1a1a1a;color:#ccc;border:1px solid #2a2a2a">Generate Variation</button>
+            <button class="btn" id="loadBtn" onclick="loadExisting()" style="background:#1a1a1a;color:#888;font-size:12px;padding:8px 12px;margin-top:auto">Load Existing Scene</button>
+        </aside>
+
+        <main class="main" id="mainArea">
+            <div class="welcome" id="stateIdle">
+                <h2>Scene Smith</h2>
+                <p>Enter a prompt and generate a 3D scene</p>
+            </div>
+
+            <div class="progress-container" id="stateRunning" style="display:none">
+                <div class="stage-bar" id="stageBar"></div>
+                <div class="elapsed" id="elapsed">0:00</div>
+                <img class="preview-img" id="previewImg" style="display:none" alt="Scene preview">
+                <div class="log-tail" id="logTail"></div>
+            </div>
+
+            <div id="stateDone" style="display:none;width:100%;height:100%">
+                <div id="viewer-container">
+                    <div id="loading-overlay">
+                        <div class="spinner"></div>
+                        Loading 3D scene...
+                    </div>
+                </div>
+            </div>
+
+            <div class="error-msg" id="stateError" style="display:none">
+                <h3>Generation Failed</h3>
+                <p id="errorText"></p>
+            </div>
+        </main>
+
+        <!-- Right detail panel -->
+        <div id="detail-panel">
+            <div id="detail-header">
+                <h3 id="detail-name">Object</h3>
+                <button id="detail-close" onclick="closeDetail()">&times;</button>
+            </div>
+            <div id="detail-viewer"></div>
+            <div id="detail-props"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+        // ---- Main viewer ----
+        let renderer, scene, camera, controls;
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedObject = null;
+        let originalMaterials = new Map();
+
+        // ---- Detail viewer ----
+        let detailRenderer, detailScene, detailCamera, detailControls;
+        let detailInited = false;
+
+        function initViewer() {
+            const container = document.getElementById('viewer-container');
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setClearColor(0x0a0a0a);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.5;
+            container.appendChild(renderer.domElement);
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+            camera.position.set(10, 10, 10);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 1.0);
+            hemi.position.set(0, 20, 0);
+            scene.add(hemi);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+            dirLight.position.set(8, 15, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.set(4096, 4096);
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 100;
+            dirLight.shadow.camera.left = -30;
+            dirLight.shadow.camera.right = 30;
+            dirLight.shadow.camera.top = 30;
+            dirLight.shadow.camera.bottom = -30;
+            dirLight.shadow.bias = -0.0005;
+            dirLight.shadow.normalBias = 0.02;
+            scene.add(dirLight);
+
+            scene.add(new THREE.DirectionalLight(0xffffff, 0.8).translateX(-5).translateY(8).translateZ(-5));
+            scene.add(new THREE.DirectionalLight(0xffffff, 0.5).translateY(12).translateZ(-8));
+
+            handleResize();
+            window.addEventListener('resize', handleResize);
+            renderer.domElement.addEventListener('click', onViewerClick);
+
+            animate();
+        }
+
+        function initDetailViewer() {
+            if (detailInited) return;
+            detailInited = true;
+
+            const container = document.getElementById('detail-viewer');
+            detailRenderer = new THREE.WebGLRenderer({ antialias: true });
+            detailRenderer.setPixelRatio(window.devicePixelRatio);
+            detailRenderer.setClearColor(0x111111);
+            detailRenderer.shadowMap.enabled = true;
+            detailRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            detailRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+            detailRenderer.toneMappingExposure = 1.5;
+            container.appendChild(detailRenderer.domElement);
+
+            detailScene = new THREE.Scene();
+            detailCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
+
+            detailControls = new OrbitControls(detailCamera, detailRenderer.domElement);
+            detailControls.enableDamping = true;
+            detailControls.dampingFactor = 0.08;
+            detailControls.autoRotate = true;
+            detailControls.autoRotateSpeed = 2.0;
+
+            // Lighting for detail view
+            detailScene.add(new THREE.AmbientLight(0xffffff, 1.2));
+            const dh = new THREE.HemisphereLight(0xffffff, 0x888888, 0.8);
+            dh.position.set(0, 10, 0);
+            detailScene.add(dh);
+
+            const dd1 = new THREE.DirectionalLight(0xffffff, 1.8);
+            dd1.position.set(3, 5, 4);
+            dd1.castShadow = true;
+            dd1.shadow.mapSize.set(2048, 2048);
+            detailScene.add(dd1);
+
+            const dd2 = new THREE.DirectionalLight(0xffffff, 0.6);
+            dd2.position.set(-3, 4, -2);
+            detailScene.add(dd2);
+
+            handleDetailResize();
+        }
+
+        function handleResize() {
+            const container = document.getElementById('viewer-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            if (w === 0 || h === 0) return;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        function handleDetailResize() {
+            if (!detailRenderer) return;
+            const container = document.getElementById('detail-viewer');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            if (w === 0 || h === 0) return;
+            detailCamera.aspect = w / h;
+            detailCamera.updateProjectionMatrix();
+            detailRenderer.setSize(w, h);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+
+            if (detailRenderer && detailScene && detailCamera) {
+                detailControls.update();
+                detailRenderer.render(detailScene, detailCamera);
+            }
+        }
+
+        // ---- Object picking ----
+
+        function getObjectName(node) {
+            let n = node;
+            while (n) {
+                if (n.name && n.name !== '' && !n.name.startsWith('Scene') && !n.name.startsWith('RootNode')) {
+                    return n.name;
+                }
+                n = n.parent;
+            }
+            return node.name || 'Unnamed';
+        }
+
+        function getTopLevelGroup(mesh) {
+            let node = mesh;
+            while (node && node.parent) {
+                if (node.parent === scene || node.parent.type === 'Scene' ||
+                    (node.parent.name && (node.parent.name.startsWith('Scene') || node.parent.name.startsWith('RootNode')))) {
+                    return node;
+                }
+                node = node.parent;
+            }
+            return mesh;
+        }
+
+        function clearSelection() {
+            if (selectedObject) {
+                selectedObject.traverse(child => {
+                    if (child.isMesh && originalMaterials.has(child)) {
+                        child.material = originalMaterials.get(child);
+                    }
+                });
+                originalMaterials.clear();
+                selectedObject = null;
+            }
+        }
+
+        function selectObject(mesh) {
+            const group = getTopLevelGroup(mesh);
+            if (selectedObject === group) return;
+
+            clearSelection();
+            selectedObject = group;
+
+            // Highlight in main scene
+            group.traverse(child => {
+                if (child.isMesh) {
+                    originalMaterials.set(child, child.material);
+                    const mat = child.material.clone();
+                    mat.emissive = new THREE.Color(0x1a3a5c);
+                    mat.emissiveIntensity = 0.4;
+                    child.material = mat;
+                }
+            });
+
+            // Open detail panel
+            openDetailPanel(group);
+        }
+
+        function openDetailPanel(group) {
+            initDetailViewer();
+
+            const panel = document.getElementById('detail-panel');
+            panel.classList.add('open');
+
+            // Name
+            const name = getObjectName(group).replace(/_/g, ' ');
+            document.getElementById('detail-name').textContent = name;
+
+            // Clone the object into detail scene
+            // Clear previous
+            const toRemove = [];
+            detailScene.traverse(c => { if (c.isMesh) toRemove.push(c); });
+            toRemove.forEach(m => { m.parent.remove(m); });
+
+            const clone = group.clone(true);
+
+            // Reset clone to origin — compute its world bounding box, then offset
+            const worldBox = new THREE.Box3().setFromObject(group);
+            const worldCenter = worldBox.getCenter(new THREE.Vector3());
+
+            // Get the clone's own position offset to center it
+            clone.position.set(0, 0, 0);
+            clone.updateMatrixWorld(true);
+            const cloneBox = new THREE.Box3().setFromObject(clone);
+            const cloneCenter = cloneBox.getCenter(new THREE.Vector3());
+            clone.position.sub(cloneCenter);
+
+            // Enable shadows on clone
+            clone.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            detailScene.add(clone);
+
+            // Fit detail camera
+            clone.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(clone);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const dist = maxDim * 2.0;
+
+            detailControls.target.set(0, 0, 0);
+            detailCamera.position.set(dist * 0.6, dist * 0.5, dist * 0.6);
+            detailCamera.near = maxDim * 0.005;
+            detailCamera.far = maxDim * 20;
+            detailCamera.updateProjectionMatrix();
+            detailControls.update();
+
+            // Update detail shadow light
+            const dl = detailScene.children.find(c => c.isDirectionalLight && c.castShadow);
+            if (dl) {
+                const pad = maxDim * 1.0;
+                dl.position.set(maxDim, maxDim * 1.5, maxDim);
+                dl.shadow.camera.left = -pad;
+                dl.shadow.camera.right = pad;
+                dl.shadow.camera.top = pad;
+                dl.shadow.camera.bottom = -pad;
+                dl.shadow.camera.near = 0.01;
+                dl.shadow.camera.far = maxDim * 6;
+                dl.shadow.camera.updateProjectionMatrix();
+            }
+
+            // Properties
+            const props = document.getElementById('detail-props');
+            let meshCount = 0;
+            let triCount = 0;
+            group.traverse(c => {
+                if (c.isMesh) {
+                    meshCount++;
+                    const geo = c.geometry;
+                    triCount += geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
+                }
+            });
+            triCount = Math.round(triCount);
+
+            const sizeStr = `${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`;
+            const posStr = `${worldCenter.x.toFixed(2)}, ${worldCenter.y.toFixed(2)}, ${worldCenter.z.toFixed(2)}`;
+
+            props.innerHTML = `
+                <div class="prop-row"><span class="prop-label">Dimensions</span><span class="prop-value">${sizeStr} m</span></div>
+                <div class="prop-row"><span class="prop-label">Position</span><span class="prop-value">${posStr}</span></div>
+                <div class="prop-row"><span class="prop-label">Meshes</span><span class="prop-value">${meshCount}</span></div>
+                <div class="prop-row"><span class="prop-label">Triangles</span><span class="prop-value">${triCount.toLocaleString()}</span></div>
+            `;
+
+            // Resize both viewers after panel opens
+            requestAnimationFrame(() => {
+                handleResize();
+                handleDetailResize();
+            });
+        }
+
+        window.generateVariation = function() {
+            // Randomize all lights in the main scene
+            const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+            const randColor = () => {
+                // Slight color tint — warm to cool
+                const h = Math.random();
+                const s = rand(0.05, 0.3);
+                const l = rand(0.7, 1.0);
+                return new THREE.Color().setHSL(h, s, l);
+            };
+
+            scene.traverse(child => {
+                if (child.isAmbientLight) {
+                    child.color.copy(randColor());
+                    child.intensity = rand(0.5, 1.5);
+                }
+                if (child.isHemisphereLight) {
+                    child.color.copy(randColor());
+                    child.groundColor.copy(randColor().multiplyScalar(0.5));
+                    child.intensity = rand(0.4, 1.4);
+                }
+                if (child.isDirectionalLight) {
+                    child.color.copy(randColor());
+                    child.intensity = rand(0.8, 3.0);
+                    // Randomize position on a sphere around the scene center
+                    const theta = rand(0, Math.PI * 2);
+                    const phi = rand(0.3, 1.2); // keep above horizon
+                    const r = rand(8, 20);
+                    const target = child.target ? child.target.position : new THREE.Vector3();
+                    child.position.set(
+                        target.x + r * Math.sin(phi) * Math.cos(theta),
+                        target.y + r * Math.cos(phi),
+                        target.z + r * Math.sin(phi) * Math.sin(theta)
+                    );
+                    if (child.shadow && child.shadow.camera) {
+                        child.shadow.camera.updateProjectionMatrix();
+                    }
+                }
+            });
+
+            // Also vary tone mapping exposure
+            renderer.toneMappingExposure = rand(1.0, 2.2);
+        };
+
+        window.closeDetail = function() {
+            clearSelection();
+            document.getElementById('detail-panel').classList.remove('open');
+            requestAnimationFrame(handleResize);
+        };
+
+        function onViewerClick(event) {
+            const container = document.getElementById('viewer-container');
+            const rect = container.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            const hit = intersects.find(i => i.object.isMesh);
+            if (hit) {
+                selectObject(hit.object);
+            } else {
+                window.closeDetail();
+            }
+        }
+
+        // ---- GLB loading ----
+
+        function loadGLB(url) {
+            const overlay = document.getElementById('loading-overlay');
+            overlay.style.display = 'flex';
+            window.closeDetail();
+
+            const toRemove = [];
+            scene.traverse(child => { if (child.isMesh) toRemove.push(child); });
+            toRemove.forEach(m => {
+                m.geometry.dispose();
+                if (m.material.dispose) m.material.dispose();
+                m.parent.remove(m);
+            });
+
+            const loader = new GLTFLoader();
+            const dracoLoader = new DRACOLoader();
+            dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/');
+            loader.setDRACOLoader(dracoLoader);
+
+            loader.load(url, (gltf) => {
+                const model = gltf.scene;
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                scene.add(model);
+
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const dist = maxDim * 1.5;
+
+                controls.target.copy(center);
+                camera.position.set(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7);
+                camera.near = maxDim * 0.01;
+                camera.far = maxDim * 10;
+                camera.updateProjectionMatrix();
+                controls.update();
+
+                const dirLight = scene.children.find(c => c.isDirectionalLight && c.castShadow);
+                if (dirLight) {
+                    const pad = maxDim * 0.6;
+                    dirLight.position.set(center.x + maxDim, center.y + maxDim * 1.2, center.z + maxDim);
+                    dirLight.target.position.copy(center);
+                    dirLight.target.updateMatrixWorld();
+                    dirLight.shadow.camera.left = -pad;
+                    dirLight.shadow.camera.right = pad;
+                    dirLight.shadow.camera.top = pad;
+                    dirLight.shadow.camera.bottom = -pad;
+                    dirLight.shadow.camera.near = 0.1;
+                    dirLight.shadow.camera.far = maxDim * 5;
+                    dirLight.shadow.camera.updateProjectionMatrix();
+                }
+
+                overlay.style.display = 'none';
+                handleResize();
+            }, undefined, (err) => {
+                console.error('GLB load error:', err);
+                overlay.innerHTML = '<span style="color:#ff4444">Failed to load 3D scene</span>';
+            });
+        }
+
+        window._loadGLB = loadGLB;
+        window._initViewer = initViewer;
+        window._viewerResize = handleResize;
+
+        // ---- UI State Machine ----
+
+        const STAGES = [
+            { key: 'floor_plan', label: 'Floor Plan' },
+            { key: 'furniture', label: 'Furniture' },
+            { key: 'wall',      label: 'Walls' },
+            { key: 'ceiling',   label: 'Ceiling' },
+            { key: 'manipuland', label: 'Manipulands' },
+            { key: 'done',      label: 'Done' },
+        ];
+
+        let pollTimer = null;
+        let viewerInited = false;
+
+        function buildStageBar() {
+            const bar = document.getElementById('stageBar');
+            bar.innerHTML = '';
+            STAGES.forEach(s => {
+                const step = document.createElement('div');
+                step.className = 'stage-step';
+                step.id = 'stage-' + s.key;
+                step.innerHTML = `<div class="bar"></div><span class="label">${s.label}</span>`;
+                bar.appendChild(step);
+            });
+        }
+
+        function updateStageBar(currentStage) {
+            let pastCurrent = false;
+            STAGES.forEach(s => {
+                const el = document.getElementById('stage-' + s.key);
+                if (!el) return;
+                el.classList.remove('active', 'completed');
+                if (s.key === currentStage) {
+                    el.classList.add('active');
+                    pastCurrent = true;
+                } else if (!pastCurrent) {
+                    el.classList.add('completed');
+                }
+            });
+        }
+
+        function formatElapsed(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return m + ':' + String(s).padStart(2, '0');
+        }
+
+        function showState(state) {
+            ['stateIdle', 'stateRunning', 'stateDone', 'stateError'].forEach(id => {
+                document.getElementById(id).style.display = 'none';
+            });
+            const id = 'state' + state.charAt(0).toUpperCase() + state.slice(1);
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (state === 'running') el.style.display = 'flex';
+            else el.style.display = '';
+
+            document.getElementById('variationBtn').style.display = (state === 'done') ? '' : 'none';
+            if (state === 'done') {
+                if (!viewerInited) { viewerInited = true; window._initViewer(); }
+                requestAnimationFrame(() => window._viewerResize());
+            }
+        }
+
+        window.cancelJob = async function() {
+            try {
+                const res = await fetch('/api/cancel', { method: 'POST' });
+                if (!res.ok) { const d = await res.json(); alert(d.detail || 'Failed to cancel'); }
+            } catch (e) { console.error('Cancel error:', e); }
+        };
+
+        function setRunningUI(running) {
+            document.getElementById('prompt').disabled = running;
+            const genBtn = document.getElementById('generateBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            genBtn.disabled = running;
+            genBtn.textContent = running ? 'Generating...' : 'Generate';
+            cancelBtn.style.display = running ? '' : 'none';
+        }
+
+        window.generate = async function() {
+            const prompt = document.getElementById('prompt').value.trim();
+            if (!prompt) return;
+            setRunningUI(true);
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt }),
+                });
+                if (!res.ok) { const d = await res.json(); alert(d.detail || 'Failed'); setRunningUI(false); return; }
+            } catch (e) { alert('Network error: ' + e.message); setRunningUI(false); return; }
+            buildStageBar();
+            showState('running');
+            startPolling();
+        };
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(poll, 3000);
+            poll();
+        }
+
+        async function poll() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                if (data.status === 'idle') return;
+                if (data.status === 'running') {
+                    showState('running');
+                    updateStageBar(data.stage || 'floor_plan');
+                    document.getElementById('elapsed').textContent = formatElapsed(data.elapsed);
+                    const img = document.getElementById('previewImg');
+                    if (data.preview_url) { img.src = data.preview_url + '?t=' + Date.now(); img.style.display = ''; }
+                    const tail = document.getElementById('logTail');
+                    if (data.log_tail) { tail.textContent = data.log_tail; tail.scrollTop = tail.scrollHeight; }
+                    return;
+                }
+                clearInterval(pollTimer); pollTimer = null;
+                if (data.status === 'done') {
+                    showState('done');
+                    window._loadGLB('/api/scene.glb?t=' + Date.now());
+                    setRunningUI(false);
+                    return;
+                }
+                if (data.status === 'error') {
+                    showState('error');
+                    document.getElementById('errorText').textContent = data.error || 'Unknown error';
+                    setRunningUI(false);
+                }
+            } catch (e) { console.error('Poll error:', e); }
+        }
+
+        window.loadExisting = async function() {
+            const btn = document.getElementById('loadBtn');
+            btn.disabled = true; btn.textContent = 'Loading...';
+            try {
+                const res = await fetch('/api/load-existing', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.status === 'done') {
+                    showState('done');
+                    window._loadGLB('/api/scene.glb?t=' + Date.now());
+                } else { alert(data.detail || 'Failed to load existing scene'); }
+            } catch (e) { alert('Error: ' + e.message); }
+            btn.disabled = false; btn.textContent = 'Load Existing Scene';
+        };
+
+        buildStageBar();
+    </script>
+</body>
+</html>
