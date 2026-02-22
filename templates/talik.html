@@ -44,7 +44,8 @@
             letter-spacing: 4px;
             color: #fff;
         }
-        #addRobotBtn {
+        .header-actions { display: flex; gap: 8px; align-items: center; }
+        .header-btn {
             padding: 8px 16px;
             background: #1a1a1a;
             color: #ccc;
@@ -54,9 +55,10 @@
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: border-color 0.2s, color 0.2s;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
         }
-        #addRobotBtn:hover { border-color: #555; color: #fff; }
+        .header-btn:hover { border-color: #555; color: #fff; }
+        .header-btn.active { background: #fff; color: #0a0a0a; border-color: #fff; }
 
         /* Robot upload modal */
         #robot-modal {
@@ -177,6 +179,15 @@
         }
         .sidebar textarea:focus { border-color: #555; }
         .sidebar textarea:disabled { opacity: 0.4; cursor: not-allowed; }
+        .image-upload-row { display: flex; align-items: center; gap: 8px; }
+        .img-upload-btn {
+            font-size: 12px; font-weight: 500; color: #888;
+            cursor: pointer; padding: 6px 12px;
+            background: #111; border: 1px dashed #2a2a2a; border-radius: 6px;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .img-upload-btn:hover { border-color: #555; color: #ccc; }
+        .img-count { font-size: 11px; color: #666; }
 
         .btn {
             display: flex;
@@ -346,12 +357,61 @@
         .error-msg { text-align: center; color: #ff4444; font-size: 14px; max-width: 480px; }
         .error-msg h3 { margin-bottom: 8px; font-weight: 500; }
         .error-msg p { color: #aa3333; }
+
+        /* Transform toolbar */
+        #transform-toolbar {
+            display: flex;
+            gap: 4px;
+            padding: 10px 16px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .tf-btn {
+            flex: 1;
+            padding: 6px 0;
+            background: #1a1a1a;
+            color: #888;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .tf-btn:hover { border-color: #555; color: #ccc; }
+        .tf-btn.active { background: #fff; color: #0a0a0a; border-color: #fff; }
+
+        /* Transform inputs */
+        .transform-section { padding: 12px 16px; border-bottom: 1px solid #1a1a1a; }
+        .transform-section .ts-label {
+            font-size: 10px; font-weight: 600; letter-spacing: 1px;
+            text-transform: uppercase; color: #666; margin-bottom: 6px;
+        }
+        .transform-row { display: flex; gap: 4px; }
+        .transform-row label {
+            display: flex; align-items: center; gap: 2px; flex: 1;
+            font-size: 11px; font-weight: 500;
+        }
+        .transform-row label .axis { width: 14px; text-align: center; }
+        .transform-row label .axis-x { color: #e55; }
+        .transform-row label .axis-y { color: #5e5; }
+        .transform-row label .axis-z { color: #58f; }
+        .transform-row input {
+            width: 100%; padding: 4px 6px;
+            background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 4px;
+            color: #ccc; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            outline: none;
+        }
+        .transform-row input:focus { border-color: #555; }
     </style>
 </head>
 <body>
     <header>
         <h1>TALIK</h1>
-        <button id="addRobotBtn" onclick="openRobotModal()">+ Add Robot</button>
+        <div class="header-actions">
+            <button class="header-btn" id="editToggleBtn" onclick="toggleEditMode()">Edit Mode</button>
+            <button class="header-btn" id="addRobotBtn" onclick="openRobotModal()">+ Add Robot</button>
+        </div>
     </header>
 
     <!-- Robot upload modal -->
@@ -378,6 +438,11 @@
         <aside class="sidebar">
             <label>Scene Prompt</label>
             <textarea id="prompt" placeholder="Describe your scene...&#10;&#10;e.g. A cozy kitchen with a wooden table, two chairs, and warm lighting"></textarea>
+            <div class="image-upload-row">
+                <label for="refImages" class="img-upload-btn">+ Reference Images</label>
+                <input type="file" id="refImages" accept="image/*" multiple style="display:none" onchange="updateImageCount()">
+                <span id="imageCount" class="img-count"></span>
+            </div>
             <button class="btn" id="generateBtn" onclick="generate()">Generate</button>
             <button class="btn" id="cancelBtn" onclick="cancelJob()" style="display:none;background:#1a1a1a;color:#ff4444;border:1px solid #332222">Cancel</button>
             <button class="btn" id="variationBtn" onclick="generateVariation()" style="display:none;background:#1a1a1a;color:#ccc;border:1px solid #2a2a2a">Generate Variation</button>
@@ -386,7 +451,7 @@
 
         <main class="main" id="mainArea">
             <div class="welcome" id="stateIdle">
-                <h2>Scene Smith</h2>
+                <h2>Talik</h2>
                 <p>Enter a prompt and generate a 3D scene</p>
             </div>
 
@@ -418,6 +483,11 @@
                 <h3 id="detail-name">Object</h3>
                 <button id="detail-close" onclick="closeDetail()">&times;</button>
             </div>
+            <div id="transform-toolbar">
+                <button class="tf-btn active" data-mode="translate" onclick="setTransformMode('translate')">Move (G)</button>
+                <button class="tf-btn" data-mode="rotate" onclick="setTransformMode('rotate')">Rotate (R)</button>
+                <button class="tf-btn" data-mode="scale" onclick="setTransformMode('scale')">Scale (S)</button>
+            </div>
             <div id="detail-viewer"></div>
             <div id="detail-props"></div>
         </div>
@@ -426,16 +496,20 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
         import URDFLoader from 'urdf-loader';
 
         // ---- Main viewer ----
         let renderer, scene, camera, controls;
+        let transformControls = null;
+        let transformHelper = null;
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         let selectedObject = null;
         let originalMaterials = new Map();
+        let editMode = false;
 
         // ---- Detail viewer ----
         let detailRenderer, detailScene, detailCamera, detailControls;
@@ -486,12 +560,79 @@
             scene.add(new THREE.DirectionalLight(0xffffff, 0.8).translateX(-5).translateY(8).translateZ(-5));
             scene.add(new THREE.DirectionalLight(0xffffff, 0.5).translateY(12).translateZ(-8));
 
+            // Transform controls for moving/rotating/scaling objects
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', (event) => {
+                controls.enabled = !event.value;
+            });
+            transformControls.addEventListener('objectChange', () => {
+                // Sync the detail panel inputs when gizmo is dragged
+                if (!selectedObject) return;
+                const p = selectedObject.position;
+                const r = selectedObject.rotation;
+                const s = selectedObject.scale;
+                const updates = {
+                    'pos-x': p.x, 'pos-y': p.y, 'pos-z': p.z,
+                    'rot-x': r.x*180/Math.PI, 'rot-y': r.y*180/Math.PI, 'rot-z': r.z*180/Math.PI,
+                    'scl-x': s.x, 'scl-y': s.y, 'scl-z': s.z,
+                };
+                for (const [key, val] of Object.entries(updates)) {
+                    const inp = document.querySelector(`input[data-prop="${key}"]`);
+                    if (inp && inp !== document.activeElement) inp.value = val.toFixed(3);
+                }
+            });
+            transformHelper = transformControls.getHelper();
+            transformHelper.name = '__TransformHelper__';
+            scene.add(transformHelper);
+
             handleResize();
             window.addEventListener('resize', handleResize);
             renderer.domElement.addEventListener('click', onViewerClick);
 
+            // Keyboard shortcuts for transform modes
+            window.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+                switch (e.key.toLowerCase()) {
+                    case 'g': if (editMode) window.setTransformMode('translate'); break;
+                    case 'r': if (editMode) window.setTransformMode('rotate'); break;
+                    case 's': if (editMode) window.setTransformMode('scale'); break;
+                    case 'e': window.toggleEditMode(); break;
+                    case 'escape': detachTransform(); window.closeDetail(); break;
+                }
+            });
+
             animate();
         }
+
+        window.toggleEditMode = function() {
+            editMode = !editMode;
+            const btn = document.getElementById('editToggleBtn');
+            btn.classList.toggle('active', editMode);
+            if (!editMode) {
+                detachTransform();
+                // Hide transform toolbar and inputs in detail panel
+                const toolbar = document.getElementById('transform-toolbar');
+                if (toolbar) toolbar.style.display = 'none';
+                document.querySelectorAll('.transform-section').forEach(s => s.style.display = 'none');
+            } else {
+                // Re-attach to selected object if any
+                if (selectedObject && transformControls) {
+                    transformControls.attach(selectedObject);
+                }
+                const toolbar = document.getElementById('transform-toolbar');
+                if (toolbar) toolbar.style.display = '';
+                document.querySelectorAll('.transform-section').forEach(s => s.style.display = '');
+            }
+        };
+
+        window.setTransformMode = function(mode) {
+            if (!transformControls) return;
+            transformControls.setMode(mode);
+            // Sync toolbar buttons
+            document.querySelectorAll('.tf-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+        };
 
         function initDetailViewer() {
             if (detailInited) return;
@@ -592,7 +733,14 @@
             return mesh;
         }
 
+        function detachTransform() {
+            if (transformControls && transformControls.object) {
+                transformControls.detach();
+            }
+        }
+
         function clearSelection() {
+            detachTransform();
             if (selectedObject) {
                 selectedObject.traverse(child => {
                     if (child.isMesh && originalMaterials.has(child)) {
@@ -611,19 +759,26 @@
             clearSelection();
             selectedObject = group;
 
-            // Highlight in main scene
-            group.traverse(child => {
-                if (child.isMesh) {
-                    originalMaterials.set(child, child.material);
-                    const mat = child.material.clone();
-                    mat.emissive = new THREE.Color(0x1a3a5c);
-                    mat.emissiveIntensity = 0.4;
-                    child.material = mat;
-                }
-            });
+            // Attach transform controls only in edit mode
+            if (editMode && transformControls) {
+                transformControls.attach(group);
+            }
 
-            // Open detail panel
+            // Open detail panel BEFORE highlighting so the clone gets original materials
             openDetailPanel(group);
+
+            // Highlight in main scene only in edit mode
+            if (editMode) {
+                group.traverse(child => {
+                    if (child.isMesh) {
+                        originalMaterials.set(child, child.material);
+                        const mat = child.material.clone();
+                        mat.emissive = new THREE.Color(0x1a3a5c);
+                        mat.emissiveIntensity = 0.4;
+                        child.material = mat;
+                    }
+                });
+            }
         }
 
         function openDetailPanel(group) {
@@ -706,15 +861,54 @@
             });
             triCount = Math.round(triCount);
 
-            const sizeStr = `${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`;
-            const posStr = `${worldCenter.x.toFixed(2)}, ${worldCenter.y.toFixed(2)}, ${worldCenter.z.toFixed(2)}`;
+            const pos = group.position;
+            const rot = group.rotation;
+            const scl = group.scale;
+
+            const mkRow = (label, axis, val, onChange) =>
+                `<label><span class="axis axis-${axis}">${axis.toUpperCase()}</span><input type="number" step="0.01" value="${val.toFixed(3)}" data-prop="${label}-${axis}"></label>`;
 
             props.innerHTML = `
-                <div class="prop-row"><span class="prop-label">Dimensions</span><span class="prop-value">${sizeStr} m</span></div>
-                <div class="prop-row"><span class="prop-label">Position</span><span class="prop-value">${posStr}</span></div>
+                <div class="transform-section">
+                    <div class="ts-label">Position</div>
+                    <div class="transform-row" data-transform="position">
+                        ${mkRow('pos','x',pos.x)}${mkRow('pos','y',pos.y)}${mkRow('pos','z',pos.z)}
+                    </div>
+                </div>
+                <div class="transform-section">
+                    <div class="ts-label">Rotation (deg)</div>
+                    <div class="transform-row" data-transform="rotation">
+                        ${mkRow('rot','x',rot.x*180/Math.PI)}${mkRow('rot','y',rot.y*180/Math.PI)}${mkRow('rot','z',rot.z*180/Math.PI)}
+                    </div>
+                </div>
+                <div class="transform-section">
+                    <div class="ts-label">Scale</div>
+                    <div class="transform-row" data-transform="scale">
+                        ${mkRow('scl','x',scl.x)}${mkRow('scl','y',scl.y)}${mkRow('scl','z',scl.z)}
+                    </div>
+                </div>
+                <div class="prop-row"><span class="prop-label">Dimensions</span><span class="prop-value">${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)} m</span></div>
                 <div class="prop-row"><span class="prop-label">Meshes</span><span class="prop-value">${meshCount}</span></div>
                 <div class="prop-row"><span class="prop-label">Triangles</span><span class="prop-value">${triCount.toLocaleString()}</span></div>
             `;
+
+            // Wire up inputs to update the object transform
+            props.querySelectorAll('input[data-prop]').forEach(input => {
+                input.addEventListener('change', () => {
+                    const [type, axis] = input.dataset.prop.split('-');
+                    const v = parseFloat(input.value);
+                    if (isNaN(v)) return;
+                    if (type === 'pos') group.position[axis] = v;
+                    else if (type === 'rot') group.rotation[axis] = v * Math.PI / 180;
+                    else if (type === 'scl') group.scale[axis] = v;
+                });
+            });
+
+            // Hide transform controls when not in edit mode
+            if (!editMode) {
+                document.getElementById('transform-toolbar').style.display = 'none';
+                props.querySelectorAll('.transform-section').forEach(s => s.style.display = 'none');
+            }
 
             // Resize both viewers after panel opens
             requestAnimationFrame(() => {
@@ -774,13 +968,20 @@
         };
 
         function onViewerClick(event) {
+            // Don't pick while dragging the transform gizmo
+            if (transformControls && transformControls.dragging) return;
+
             const container = document.getElementById('viewer-container');
             const rect = container.getBoundingClientRect();
             mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(scene.children, true);
+            // Only raycast scene objects, skip transform gizmo helper
+            const sceneObjects = scene.children.filter(c =>
+                c.name !== '__TransformHelper__'
+            );
+            const intersects = raycaster.intersectObjects(sceneObjects, true);
             const hit = intersects.find(i => i.object.isMesh);
             if (hit) {
                 selectObject(hit.object);
@@ -796,8 +997,20 @@
             overlay.style.display = 'flex';
             window.closeDetail();
 
+            // Remove old scene meshes, but NOT the TransformControls gizmo
             const toRemove = [];
-            scene.traverse(child => { if (child.isMesh) toRemove.push(child); });
+            scene.traverse(child => {
+                if (child.isMesh) {
+                    // Skip meshes belonging to the transform helper
+                    let isGizmo = false;
+                    let p = child;
+                    while (p) {
+                        if (p.name === '__TransformHelper__') { isGizmo = true; break; }
+                        p = p.parent;
+                    }
+                    if (!isGizmo) toRemove.push(child);
+                }
+            });
             toRemove.forEach(m => {
                 m.geometry.dispose();
                 if (m.material.dispose) m.material.dispose();
@@ -1159,6 +1372,13 @@
                 alert('Failed to load robot: ' + err.message);
             });
         }
+
+        window.updateImageCount = function() {
+            const input = document.getElementById('refImages');
+            const count = document.getElementById('imageCount');
+            const n = input.files.length;
+            count.textContent = n ? `${n} image${n > 1 ? 's' : ''} selected` : '';
+        };
 
         buildStageBar();
     </script>

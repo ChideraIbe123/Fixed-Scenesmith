@@ -301,6 +301,11 @@ async def index(request: Request):
     return templates.TemplateResponse("talik.html", {"request": request})
 
 
+@app.get("/tc-test", response_class=HTMLResponse)
+async def tc_test(request: Request):
+    return templates.TemplateResponse("tc_test.html", {"request": request})
+
+
 @app.post("/api/generate")
 async def generate(request: Request):
     global current_job
